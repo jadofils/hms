@@ -1,0 +1,49 @@
+package amalitech.hospital.management.utils;
+
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.stereotype.Component;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * Loads an HTML file from {@code templates/email/} and substitutes {@code {{key}}}
+ * placeholders with caller-supplied values.
+ *
+ * Single responsibility, on purpose: this class knows nothing about SMTP or which
+ * template a given email type uses — that's {@code EmailAspect}'s job (deciding
+ * *which* template and *what* goes in it) and {@code JavaMailSender}'s job (actually
+ * sending). This class only ever turns a template name + a value map into a final
+ * HTML string. Templates are cached in memory after first load — they don't change at
+ * runtime, so re-reading the classpath resource on every send would be pure overhead.
+ */
+@Component
+public class EmailTemplateRenderer {
+
+    private static final String TEMPLATE_PATH_PREFIX = "templates/email/";
+    private static final String TEMPLATE_PATH_SUFFIX = ".html";
+
+    private final Map<String, String> templateCache = new ConcurrentHashMap<>();
+
+    public String render(String templateName, Map<String, String> variables) {
+        String template = templateCache.computeIfAbsent(templateName, this::load);
+        String result = template;
+        for (Map.Entry<String, String> entry : variables.entrySet()) {
+            String value = entry.getValue() == null ? "" : entry.getValue();
+            result = result.replace("{{" + entry.getKey() + "}}", value);
+        }
+        return result;
+    }
+
+    private String load(String templateName) {
+        String path = TEMPLATE_PATH_PREFIX + templateName + TEMPLATE_PATH_SUFFIX;
+        try (InputStream in = new ClassPathResource(path).getInputStream()) {
+            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new IllegalStateException("Missing email template: " + path, e);
+        }
+    }
+}
