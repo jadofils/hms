@@ -1,0 +1,111 @@
+spring:
+  # Loads .env (project root) as a properties file so every ${VAR} placeholder below
+  # actually resolves. Without this, Spring never reads .env at all — DB_URL "worked"
+  # in the past only because spring-boot-docker-compose derives datasource connection
+  # details straight from the running container, bypassing this placeholder entirely;
+  # every other ${VAR} here (REDIS_*, ENCRYPTION_KEY, BCRYPT_ROUNDS, GMAIL_*, ...) was
+  # silently unresolved until something actually required it.
+  config:
+    import: "optional:file:.env[.properties]"
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      pool-name: HMS-Pool
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 20000    # ms — how long to wait for a connection before throwing
+      idle-timeout: 30000          # ms — how long an idle connection sits before eviction
+      max-lifetime: 1800000        # ms — 30 min, max lifetime of any connection
+
+  jpa:
+    hibernate:
+      ddl-auto: update   # dev mode; switch to validate in prod
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        connection:
+          autocommit: false
+        jdbc:
+          fetch_size: 50
+          batch_size: 20
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT}
+      username: ${REDIS_USERNAME}
+      password: ${REDIS_PASSWORD}
+  mail:
+    host: ${GMAIL_HOST}
+    port: ${GMAIL_PORT}
+    username: ${GMAIL_USERNAME}
+    password: ${GMAIL_PASSWORD}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
+# Redis (still useful for caching sessions, tokens, etc.)
+
+# GraphQL configuration
+graphql:
+  tools:
+    schema-location-pattern: "**/*.graphqls"   # where your schema files live
+  servlet:
+    mapping: /graphql                          # single endpoint
+    enabled: true
+    cors-enabled: true
+    exception-handlers-enabled: true
+
+# Security
+security:
+  bcrypt:
+    rounds: ${BCRYPT_ROUNDS}
+  jwt:
+    expiry-hours: ${JWT_EXPIRY_HOURS}
+  encryption-key: ${ENCRYPTION_KEY}
+
+# Mail
+
+# Cloudinary
+cloudinary:
+  cloud-name: ${CLOUDINARY_CLOUD_NAME}
+  api-key: ${CLOUDINARY_API_KEY}
+  api-secret: ${CLOUDINARY_API_SECRET}
+
+# Application
+app:
+  page-size: ${APP_PAGE_SIZE}
+  max-upload-size-mb: ${APP_MAX_UPLOAD_SIZE_MB}
+  mail-from-name: ${GMAIL_FROM_NAME}
+  # Used by EmailAspect/AuthService to build links inside outbound HTML emails
+  # (reset-password deep link, "Open HMS"/nav-bar links, support mailto). Defaults are
+  # safe for local dev; override via .env for staging/prod.
+  frontend-base-url: ${APP_FRONTEND_BASE_URL:http://localhost:3000}
+  support-email: ${APP_SUPPORT_EMAIL:support@hms-hospital.com}
+
+# Error responses — GlobalExceptionHandler maps every exception to a clean ErrorResponse
+# body, so Spring Boot's own error page should never actually be hit. This is defense in
+# depth for the residual cases that bypass @ExceptionHandler entirely (e.g. a raw 404 to
+# an unmapped URL) — without it, spring-boot-devtools overrides these to ALWAYS, putting
+# a full stack trace in the JSON body of any error that does slip through.
+server:
+  error:
+    include-stacktrace: never
+    include-exception: false
+
+# Swagger / OpenAPI — UI lands on the app root (http://localhost:8080/), JSON docs
+# stay at the springdoc default. All actual API routes live under /api/v1/**.
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /
+    tags-sorter: alpha
+    operations-sorter: method
