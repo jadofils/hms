@@ -1,0 +1,12 @@
+# Production profile — schema must already match the entities (never auto-migrated by
+# Hibernate here); activate via SPRING_PROFILES_ACTIVE=prod.
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+
+logging:
+  level:
+    root: WARN
+    amalitech.hospital.management: INFO

@@ -10,6 +10,13 @@ CLAUDE.md
 
 # Claude Code local-only settings (per-machine MCP toggles, etc.)
 .claude/settings.local.json
+
+# Local SonarQube tooling scripts — sonarqube.cmd hardcodes this machine's SonarQube
+# install path, and jacoco.cmd is meant to hold a real Sonar auth token once filled in.
+# Neither is portable to another dev's machine or CI, and the token must never be
+# committed. Keep a template of each (without a real path/token) if these need sharing.
+sonarqube.cmd
+jacoco.cmd
 !**/src/main/**/target/
 !**/src/test/**/target/
 

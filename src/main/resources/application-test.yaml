@@ -1,0 +1,15 @@
+# Test profile — activated explicitly via @ActiveProfiles("test") on
+# HmsApplicationTests (not a same-named application.yaml on the test classpath, which
+# would shadow rather than merge with the main application.yaml's datasource/redis/mail
+# config). Same Postgres instance as dev (see CLAUDE.md — FindUserDataAspect's native
+# queries use Postgres-specific SQL, so swapping engines for tests is out of scope here);
+# just schema-validate instead of auto-migrate, and quieter logging.
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+
+logging:
+  level:
+    amalitech.hospital.management: INFO

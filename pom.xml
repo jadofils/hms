@@ -28,6 +28,11 @@
 	</scm>
 	<properties>
 		<java.version>25</java.version>
+		<!-- SonarQube analysis config — host URL/token are environment-specific and
+		     deliberately NOT set here; passed by sonarqube.cmd/jacoco.cmd instead. -->
+		<sonar.projectKey>hms</sonar.projectKey>
+		<sonar.projectName>Hospital Management System</sonar.projectName>
+		<sonar.coverage.jacoco.xmlReportPaths>${project.build.directory}/site/jacoco/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
 	</properties>
 	<dependencies>
 		<dependency>
@@ -143,7 +148,11 @@
 			<artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
 			<version>3.1.0</version>
 		</dependency>
-	</dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+    </dependencies>
 
 
 	<build>
@@ -192,6 +201,53 @@
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
+			</plugin>
+			<plugin>
+				<!-- Instruments test runs (prepare-agent, bound to the default
+				     "initialize" phase) and generates the HTML/XML coverage report
+				     (report, bound to "test" — after Surefire runs) under
+				     target/site/jacoco/. sonar.coverage.jacoco.xmlReportPaths above
+				     points sonar:sonar at the XML report this produces. -->
+				<groupId>org.jacoco</groupId>
+				<artifactId>jacoco-maven-plugin</artifactId>
+				<version>0.8.13</version>
+				<configuration>
+					<excludes>
+						<!-- Boilerplate entry point — testing main() would mean booting a second
+						     real Spring Boot app inside the test JVM for no real coverage value. -->
+						<exclude>**/HmsApplication.class</exclude>
+						<!-- Scaffolding enums for domains with entities only, no service/controller
+						     layer yet (see CLAUDE.md) — zero call sites anywhere to exercise. -->
+						<exclude>**/enums/SystemLogLevel.class</exclude>
+						<exclude>**/enums/AllergySeverity.class</exclude>
+						<exclude>**/enums/ReferralStatus.class</exclude>
+					</excludes>
+				</configuration>
+				<executions>
+					<execution>
+						<id>prepare-agent</id>
+						<goals>
+							<goal>prepare-agent</goal>
+						</goals>
+					</execution>
+					<execution>
+						<id>report</id>
+						<phase>test</phase>
+						<goals>
+							<goal>report</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
+			<plugin>
+				<!-- Pinned explicitly so `sonar:sonar` doesn't hit Central for
+				     plugin-metadata resolution on every run. Invoked by jacoco.cmd,
+				     not bound to any lifecycle phase here — sonar.host.url/sonar.token
+				     are supplied on the command line since they're
+				     environment/instance-specific, not committed to the pom. -->
+				<groupId>org.sonarsource.scanner.maven</groupId>
+				<artifactId>sonar-maven-plugin</artifactId>
+				<version>5.1.0.4751</version>
 			</plugin>
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>

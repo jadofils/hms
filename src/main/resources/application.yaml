@@ -1,4 +1,12 @@
 spring:
+  # dev/test/prod-specific overrides live in application-{profile}.yaml (ddl-auto,
+  # show-sql, log levels) — this file is the shared base every profile loads on top of.
+  # Defaults to "dev" when SPRING_PROFILES_ACTIVE isn't set (local/.env-driven runs);
+  # tests instead activate "test" explicitly via @ActiveProfiles on HmsApplicationTests
+  # rather than a second same-named application.yaml on the test classpath, which would
+  # shadow (not merge with) this file's datasource/redis/mail config entirely.
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
   # Loads .env (project root) as a properties file so every ${VAR} placeholder below
   # actually resolves. Without this, Spring never reads .env at all — DB_URL "worked"
   # in the past only because spring-boot-docker-compose derives datasource connection
@@ -21,9 +29,7 @@ spring:
       max-lifetime: 1800000        # ms — 30 min, max lifetime of any connection
 
   jpa:
-    hibernate:
-      ddl-auto: update   # dev mode; switch to validate in prod
-    show-sql: true
+    # hibernate.ddl-auto and show-sql are set per-profile (application-dev/test/prod.yaml)
     properties:
       hibernate:
         format_sql: true
@@ -89,6 +95,15 @@ app:
   # safe for local dev; override via .env for staging/prod.
   frontend-base-url: ${APP_FRONTEND_BASE_URL:http://localhost:3000}
   support-email: ${APP_SUPPORT_EMAIL:support@hms-hospital.com}
+  # How long a self-registration's email-verification link stays valid — see
+  # UserService.createUser (generates it) / AuthService.verifyEmail (consumes it).
+  email-verification-ttl-hours: ${APP_EMAIL_VERIFICATION_TTL_HOURS:24}
+  # Thresholds MaintenanceService's two @ScheduledMaintenance tasks check on each run —
+  # independent of how often the tasks themselves run (see ScheduledMaintenance's own
+  # interval/unit attributes at each call site).
+  maintenance:
+    log-retention-days: ${APP_LOG_RETENTION_DAYS:30}
+    idle-user-days: ${APP_IDLE_USER_DAYS:90}
 
 # Error responses — GlobalExceptionHandler maps every exception to a clean ErrorResponse
 # body, so Spring Boot's own error page should never actually be hit. This is defense in

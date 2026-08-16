@@ -1,0 +1,12 @@
+# Local development profile — active by default (see application.yaml's
+# spring.profiles.active fallback). Schema is allowed to auto-migrate from the entities
+# and SQL is logged for debugging.
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+
+logging:
+  level:
+    amalitech.hospital.management: DEBUG
