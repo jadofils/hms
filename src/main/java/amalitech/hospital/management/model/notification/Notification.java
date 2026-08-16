@@ -3,6 +3,8 @@ package amalitech.hospital.management.model.notification;
 import amalitech.hospital.management.model.user.User;
 import jakarta.persistence.*;
 import lombok.Data;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.LocalDateTime;
 
@@ -30,16 +32,26 @@ public class Notification {
             foreignKey = @ForeignKey(name = "fk_notification_user"))
     private User actor;
 
-    /** JSONB fields — can be mapped as String or ObjectNode (Jackson) */
+    /** JSONB fields, mapped as plain {@code String} (a caller-facing shape decided at the
+     *  service layer — see {@code NotificationService}), but {@code @JdbcTypeCode(SqlTypes.JSON)}
+     *  is required so Hibernate actually binds the parameter as {@code jsonb} rather than
+     *  {@code varchar} — without it, Postgres rejects every insert/update with "column is
+     *  of type jsonb but expression is of type character varying" (only surfaced once a
+     *  real caller — {@code NotificationService} — ran an actual insert; every entity
+     *  field here was otherwise unexercised scaffolding until that vertical was built). */
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "recipients", columnDefinition = "jsonb", nullable = false)
     private String recipients = "[]"; // default empty array
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "payload", columnDefinition = "jsonb")
     private String payload;
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "channels", columnDefinition = "jsonb")
     private String channels;
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "status", columnDefinition = "jsonb")
     private String status;
 
