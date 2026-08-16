@@ -7,7 +7,7 @@ import com.auth0.jwt.interfaces.DecodedJWT;
 import com.auth0.jwt.interfaces.JWTVerifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Service;
 
 import javax.crypto.Cipher;
 import javax.crypto.spec.GCMParameterSpec;
@@ -16,10 +16,10 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Base64;
-import java.util.Date;
 import java.util.UUID;
 
 /**
@@ -39,7 +39,7 @@ import java.util.UUID;
  * blocklist with a TTL equal to the token's own remaining lifetime — the entry expires
  * by itself exactly when the token would have anyway, so nothing needs cleaning up.
  */
-@Component
+@Service
 public class JwtService {
 
     private static final String CLAIM_USER_ID = "userId";
@@ -71,7 +71,7 @@ public class JwtService {
     }
 
     /** Decrypted identity extracted from a verified token, plus its jti/expiry for logout. */
-    public record Identity(String userId, String username, String role, String jti, Date expiresAt) {}
+    public record Identity(String userId, String username, String role, String jti, Instant expiresAt) {}
 
     public long getExpiryHours() {
         return expiryHours;
@@ -79,8 +79,8 @@ public class JwtService {
 
     /** Builds a signed token with userId/username/role embedded as encrypted claims. */
     public String generateToken(String userId, String username, String role, String jti) {
-        Date now = new Date();
-        Date expiry = new Date(now.getTime() + expiryMs);
+        Instant now = Instant.now();
+        Instant expiry = now.plusMillis(expiryMs);
         return JWT.create()
                 .withJWTId(jti)
                 .withClaim(CLAIM_USER_ID, encrypt(userId))
@@ -111,7 +111,7 @@ public class JwtService {
                 decrypt(jwt.getClaim(CLAIM_USERNAME).asString()),
                 decrypt(jwt.getClaim(CLAIM_ROLE).asString()),
                 jwt.getId(),
-                jwt.getExpiresAt());
+                jwt.getExpiresAtAsInstant());
     }
 
     // ── Logout / revocation ──────────────────────────────────────────────────
@@ -120,13 +120,13 @@ public class JwtService {
         return Boolean.TRUE.equals(redisTemplate.hasKey(BLOCKLIST_PREFIX + jti));
     }
 
-    public void blocklist(String jti, Date expiresAt) {
-        long ttlSeconds = Math.max(1, (expiresAt.getTime() - System.currentTimeMillis()) / 1000);
+    public void blocklist(String jti, Instant expiresAt) {
+        long ttlSeconds = Math.max(1, Duration.between(Instant.now(), expiresAt).getSeconds());
         redisTemplate.opsForValue().set(BLOCKLIST_PREFIX + jti, "1", Duration.ofSeconds(ttlSeconds));
     }
 
     public void blocklist(String jti, LocalDateTime expiresAt) {
-        blocklist(jti, Date.from(expiresAt.atZone(ZoneId.systemDefault()).toInstant()));
+        blocklist(jti, expiresAt.atZone(ZoneId.systemDefault()).toInstant());
     }
 
     // ── AES-256-GCM for individual claim values ────────────────────────────────

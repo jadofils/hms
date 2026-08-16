@@ -109,9 +109,18 @@ public class GlobalExceptionHandler {
         return buildResponse(HttpStatus.CONFLICT, "This record was modified by another request — please retry");
     }
 
+    /**
+     * Thrown by {@code AuthorizationAspect} (an authenticated caller whose role lacks
+     * the required {@code resource:action}) as well as by Spring Security itself.
+     * Prefers the exception's own message — naming which permission was missing is
+     * normal REST API behavior, not a security leak, unlike login's deliberately vague
+     * 401 (which exists to prevent account enumeration for an *unauthenticated* caller).
+     */
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<ErrorResponse> handleAccessDenied(AccessDeniedException ex) {
-        return buildResponse(HttpStatus.FORBIDDEN, "You do not have permission to perform this action");
+        String message = ex.getMessage();
+        return buildResponse(HttpStatus.FORBIDDEN,
+                message != null && !message.isBlank() ? message : "You do not have permission to perform this action");
     }
 
     /**

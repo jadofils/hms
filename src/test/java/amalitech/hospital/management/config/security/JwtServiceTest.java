@@ -9,11 +9,15 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.time.Duration;
-import java.util.Date;
+import java.time.Instant;
+import java.time.LocalDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
@@ -47,7 +51,7 @@ class JwtServiceTest {
         assertThat(identity.username()).isEqualTo("alice");
         assertThat(identity.role()).isEqualTo("ADMIN");
         assertThat(identity.jti()).isEqualTo("jti-1");
-        assertThat(identity.expiresAt()).isAfter(new Date());
+        assertThat(identity.expiresAt()).isAfter(Instant.now());
     }
 
     @Test
@@ -99,7 +103,7 @@ class JwtServiceTest {
     @Test
     void blocklist_storesKeyWithTtlDerivedFromExpiry() {
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-        Date expiresAt = new Date(System.currentTimeMillis() + 60_000); // 60s from now
+        Instant expiresAt = Instant.now().plusSeconds(60);
 
         jwtService.blocklist("jti-1", expiresAt);
 
@@ -109,7 +113,7 @@ class JwtServiceTest {
     @Test
     void blocklist_clampsTtlToAtLeastOneSecond_whenAlreadyExpired() {
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-        Date alreadyExpired = new Date(System.currentTimeMillis() - 60_000);
+        Instant alreadyExpired = Instant.now().minusSeconds(60);
 
         jwtService.blocklist("jti-1", alreadyExpired);
 
@@ -119,5 +123,34 @@ class JwtServiceTest {
     @Test
     void getExpiryHours_returnsConfiguredValue() {
         assertThat(jwtService.getExpiryHours()).isEqualTo(8);
+    }
+
+    @Test
+    void blocklist_localDateTimeOverload_delegatesToInstantOverload() {
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        LocalDateTime expiresAt = LocalDateTime.now().plusMinutes(5);
+
+        jwtService.blocklist("jti-1", expiresAt);
+
+        verify(valueOperations).set(eq("jwt:blocklist:jti-1"), eq("1"), any(Duration.class));
+    }
+
+    /** {@code decrypt}'s catch is reachable through a real (tampered) claim value, unlike
+     *  {@code encrypt}'s / {@code deriveKey}'s — the AES key is always a valid 256-bit key
+     *  derived from SHA-256, so those two never fail under any real input. Invoked via
+     *  reflection since decrypt is private and every public entry point (verify) requires
+     *  a validly-*signed* token, which can't carry an arbitrarily corrupted claim value
+     *  without also failing signature verification first. */
+    @Test
+    void decrypt_wrapsFailureAsIllegalState_whenClaimValueIsCorrupted() throws Exception {
+        Method decrypt = JwtService.class.getDeclaredMethod("decrypt", String.class);
+        decrypt.setAccessible(true);
+
+        InvocationTargetException thrown = assertThrows(InvocationTargetException.class,
+                () -> decrypt.invoke(jwtService, "not-valid-ciphertext"));
+
+        assertThat(thrown.getCause())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Failed to decrypt JWT claim");
     }
 }

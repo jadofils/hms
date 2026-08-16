@@ -36,12 +36,12 @@ public class FindUserDataAspect {
     private final EntityManager entityManager;
 
     @Around("@annotation(findUserData)")
-    public Object executeFindUserData(ProceedingJoinPoint pjp, FindUserData findUserData) throws Throwable {
+    public Object executeFindUserData(ProceedingJoinPoint pjp, FindUserData findUserData) {
         Object[] args = pjp.getArgs();
         boolean paginated = args.length >= 2 && args[0] instanceof Integer && args[1] instanceof Integer;
 
         if (!paginated) {
-            QueryBuilder builder = buildQuery(findUserData, selectColumnsFor(findUserData.domain()));
+            QueryBuilder builder = buildQuery(findUserData, null, null, selectColumnsFor(findUserData.domain()));
             return entityManager.createNativeQuery(builder.build()).getResultList();
         }
 
@@ -49,6 +49,15 @@ public class FindUserDataAspect {
         int size = (Integer) args[1];
         String sortBy = args.length > 2 && args[2] instanceof String s ? s : null;
         String sortDir = args.length > 3 && args[3] instanceof String s ? s : null;
+
+        // Optional trailing filter args (currently only meaningful for domain="patient":
+        // status/gender). Like sortBy/sortDir above, these are read off the method's own
+        // runtime arguments rather than the annotation. Callers must validate these
+        // against their domain's own enum's allowed values *before* calling here (see
+        // PatientService.getPatients) — buildQuery concatenates them directly, the same
+        // way findUserData.userId()/username() already do.
+        String filter1 = args.length > 4 && args[4] instanceof String s && !s.isBlank() ? s : null;
+        String filter2 = args.length > 5 && args[5] instanceof String s && !s.isBlank() ? s : null;
 
         // A frontend-chosen sort column is only ever resolved against this domain's own
         // SELECT list (never concatenated into the query raw) — anything unrecognized
@@ -58,11 +67,11 @@ public class FindUserDataAspect {
         String orderColumn = resolveSortColumn(findUserData.domain(), sortBy);
         QueryBuilder.SortDir direction = "DESC".equalsIgnoreCase(sortDir) ? QueryBuilder.SortDir.DESC : QueryBuilder.SortDir.ASC;
 
-        QueryBuilder rowsBuilder = buildQuery(findUserData, selectColumnsFor(findUserData.domain()))
+        QueryBuilder rowsBuilder = buildQuery(findUserData, filter1, filter2, selectColumnsFor(findUserData.domain()))
                 .orderBy(orderColumn, direction)
                 .limit(size)
                 .offset(page * size);
-        QueryBuilder countBuilder = buildQuery(findUserData, "COUNT(*)");
+        QueryBuilder countBuilder = buildQuery(findUserData, filter1, filter2, "COUNT(*)");
 
         List<?> rows = entityManager.createNativeQuery(rowsBuilder.build()).getResultList();
         Number total = (Number) entityManager.createNativeQuery(countBuilder.build()).getSingleResult();
@@ -74,8 +83,27 @@ public class FindUserDataAspect {
             case "user" -> new String[]{"u.user_id", "u.username", "u.email", "u.is_active"};
             case "role" -> new String[]{"r.role_id", "r.role_name"};
             case "permission" -> new String[]{"p.permission_id", "p.resource", "p.action"};
-            case "appointment" -> new String[]{"a.appointment_id", "a.appointment_date", "a.status"};
-            case "doctor" -> new String[]{"d.doctor_id", "d.name", "dep.name AS department"};
+            // Appointment->Patient and Appointment->Doctor are both plain many-to-one FKs
+            // (unlike Doctor<->Department's many-to-many above), so joining both here
+            // can't fan an appointment out into duplicate rows — safe to include names.
+            case "appointment" -> new String[]{
+                    "a.appointment_id", "a.patient_id", "a.doctor_id",
+                    "p.first_name AS patient_first_name", "p.last_name AS patient_last_name",
+                    "d.first_name AS doctor_first_name", "d.last_name AS doctor_last_name",
+                    "a.appointment_date", "a.status", "a.reason"
+            };
+            // Doctor<->Department is many-to-many, so joining departments in here would
+            // fan a doctor with N departments out into N duplicate rows (breaking both
+            // pagination and the COUNT(*) used for it). Department membership is exposed
+            // instead via the single-item DoctorResponse (through the JPA entity's own
+            // @ManyToMany collection) — this listing only needs the doctor's own columns.
+            case "doctor" -> new String[]{
+                    "d.doctor_id", "d.first_name", "d.last_name", "d.specialization", "d.phone", "d.email"
+            };
+            case "patient" -> new String[]{
+                    "p.patient_id", "p.first_name", "p.last_name", "p.dob",
+                    "p.gender", "p.phone", "p.email", "p.address", "p.status"
+            };
             default -> throw new IllegalStateException("Unknown domain: " + domain);
         };
     }
@@ -118,7 +146,7 @@ public class FindUserDataAspect {
         return name.trim().toLowerCase(Locale.ROOT).replace("_", "");
     }
 
-    private QueryBuilder buildQuery(FindUserData findUserData, String... selectCols) {
+    private QueryBuilder buildQuery(FindUserData findUserData, String filter1, String filter2, String... selectCols) {
         QueryBuilder builder;
         switch (findUserData.domain()) {
             case "user" -> builder = QueryBuilder.select(selectCols)
@@ -139,17 +167,30 @@ public class FindUserDataAspect {
                     .join("users u ON u.user_id = ur.user_id")
                     .whereActive("p").whereActive("u");
 
-            case "appointment" -> builder = QueryBuilder.select(selectCols)
-                    .from("appointments a")
-                    .join("users u ON u.user_id = a.patient_id")
-                    .whereActive("a").whereActive("u");
+            case "appointment" -> {
+                builder = QueryBuilder.select(selectCols)
+                        .from("appointments a")
+                        .join("patients p ON p.patient_id = a.patient_id")
+                        .join("doctors d ON d.doctor_id = a.doctor_id")
+                        .whereActive("a").whereActive("p").whereActive("d");
+                // filter1 = status — already validated against AppointmentStatus's own
+                // dbValues by AppointmentService before this call.
+                if (filter1 != null) builder.and("a.status = '" + filter1 + "'");
+            }
 
             case "doctor" -> builder = QueryBuilder.select(selectCols)
                     .from("doctors d")
-                    .join("doctor_department dd ON dd.doctor_id = d.doctor_id")
-                    .join("departments dep ON dep.department_id = dd.department_id")
-                    .join("users u ON u.user_id = d.user_id")
-                    .whereActive("d").whereActive("u").whereActive("dep");
+                    .whereActive("d");
+
+            case "patient" -> {
+                builder = QueryBuilder.select(selectCols)
+                        .from("patients p")
+                        .whereActive("p");
+                // filter1 = status, filter2 = gender — both already validated against
+                // PatientStatus/Gender's own dbValues by PatientService before this call.
+                if (filter1 != null) builder.and("p.status = '" + filter1 + "'");
+                if (filter2 != null) builder.and("p.gender = '" + filter2 + "'");
+            }
 
             default -> throw new IllegalStateException("Unknown domain: " + findUserData.domain());
         }

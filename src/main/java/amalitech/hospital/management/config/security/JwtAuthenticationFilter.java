@@ -47,7 +47,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                             principal, null, List.of(authority));
                     SecurityContextHolder.getContext().setAuthentication(authentication);
                 }
-            } catch (JWTVerificationException e) {
+            } catch (JWTVerificationException _) {
                 SecurityContextHolder.clearContext();
             }
         }

@@ -10,8 +10,6 @@ import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
 import org.springframework.stereotype.Component;
 
-import java.util.List;
-
 @Aspect
 @Component
 @RequiredArgsConstructor
@@ -20,7 +18,7 @@ public class SqlQueryBuilderAspect {
     private final EntityManager entityManager;
 
     @Around("@annotation(sqlQueryBuilder)")
-    public Object executeSqlQuery(ProceedingJoinPoint pjp, SqlQueryBuilder sqlQueryBuilder) throws Throwable {
+    public Object executeSqlQuery(ProceedingJoinPoint pjp, SqlQueryBuilder sqlQueryBuilder) {
         // Example: build a query dynamically based on annotation value
         String queryName = sqlQueryBuilder.value();
 
@@ -28,9 +26,11 @@ public class SqlQueryBuilderAspect {
 
         switch (queryName) {
             case "findDoctorsByDepartment":
-                builder = QueryBuilder.select("d.doctor_id", "d.name", "dep.name AS department")
+                // join_table is "doctor_departments" (plural) per Doctor.departments'
+                // @JoinTable; doctors has no "name" column, only first_name/last_name.
+                builder = QueryBuilder.select("d.doctor_id", "d.first_name", "d.last_name", "dep.name AS department")
                         .from("doctors d")
-                        .join("doctor_department dd ON dd.doctor_id = d.doctor_id")
+                        .join("doctor_departments dd ON dd.doctor_id = d.doctor_id")
                         .join("departments dep ON dep.department_id = dd.department_id")
                         .whereActive("d")
                         .whereActive("dep");
@@ -39,7 +39,7 @@ public class SqlQueryBuilderAspect {
             case "findDepartmentsWithDoctors":
                 builder = QueryBuilder.select("dep.department_id", "dep.name", "COUNT(d.doctor_id) AS doctor_count")
                         .from("departments dep")
-                        .join("doctor_department dd ON dd.department_id = dep.department_id")
+                        .join("doctor_departments dd ON dd.department_id = dep.department_id")
                         .join("doctors d ON d.doctor_id = dd.doctor_id")
                         .groupBy("dep.department_id", "dep.name")
                         .having("COUNT(d.doctor_id) > 0");
@@ -60,8 +60,6 @@ public class SqlQueryBuilderAspect {
         String sql = builder.build();
         Query query = entityManager.createNativeQuery(sql);
 
-        // Execute and return results
-        List<?> results = query.getResultList();
-        return results;
+        return query.getResultList();
     }
 }

@@ -1,6 +1,7 @@
 package amalitech.hospital.management.utils.filters;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -96,7 +97,7 @@ public class QueryBuilder {
     }
 
     public QueryBuilder groupBy(String... columns) {
-        for (String c : columns) groupByParts.add(c);
+        groupByParts.addAll(Arrays.asList(columns));
         return this;
     }
 
