@@ -1,5 +1,7 @@
 package amalitech.hospital.management.model.patient;
 
+import amalitech.hospital.management.enums.AppointmentStatus;
+import amalitech.hospital.management.enums.converter.AppointmentStatusConverter;
 import amalitech.hospital.management.model.doctor.Doctor;
 import jakarta.persistence.*;
 import lombok.Data;
@@ -36,8 +38,9 @@ public class Appointment {
     @Column(name = "appointment_date", nullable = false)
     private LocalDateTime appointmentDate;
 
+    @Convert(converter = AppointmentStatusConverter.class)
     @Column(name = "status", nullable = false, length = 20)
-    private String status = "scheduled"; // values: 'scheduled','completed','cancelled'
+    private AppointmentStatus status = AppointmentStatus.SCHEDULED;
 
     @Column(name = "reason", length = 255)
     private String reason;
