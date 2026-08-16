@@ -27,8 +27,8 @@ import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
-import java.util.Date;
 import java.util.List;
 import java.util.Optional;
 
@@ -71,6 +71,7 @@ class AuthServiceTest {
         existingUser.setEmail("alice@example.com");
         existingUser.setPasswordHash("hashed-pw");
         existingUser.setIsActive(true);
+        existingUser.setEmailVerifiedAt(LocalDateTime.now()); // verified by default — see the dedicated gate tests below
 
         adminRole = new Role();
         adminRole.setRoleId("role-1");
@@ -118,6 +119,40 @@ class AuthServiceTest {
         assertThatThrownBy(() -> authService.login(request, httpServletRequest))
                 .isInstanceOf(UnauthorizedException.class)
                 .hasMessageContaining("deactivated");
+    }
+
+    @Test
+    void login_throwsUnauthorized_whenEmailNotVerified() {
+        existingUser.setEmailVerifiedAt(null);
+        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(existingUser));
+        when(passwordEncoder.matches("pw", "hashed-pw")).thenReturn(true);
+        LoginRequest request = loginRequest("alice", "pw");
+
+        assertThatThrownBy(() -> authService.login(request, httpServletRequest))
+                .isInstanceOf(UnauthorizedException.class)
+                .hasMessageContaining("verify your email");
+    }
+
+    @Test
+    void login_allowsUnverifiedState_whenNoEmailOnFileAtAll() {
+        // No email at all (optional at registration) has nothing to verify, and must not
+        // be blocked by the same gate that rejects an unverified *supplied* email.
+        existingUser.setEmail(null);
+        existingUser.setEmailVerifiedAt(null);
+        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(existingUser));
+        when(passwordEncoder.matches("pw", "hashed-pw")).thenReturn(true);
+        when(userRoleRepository.findByIdUserId("user-1")).thenReturn(List.of(assignment(adminRole)));
+        when(jwtService.getExpiryHours()).thenReturn(8L);
+        when(userSessionRepository.save(any(UserSession.class))).thenAnswer(inv -> {
+            UserSession session = inv.getArgument(0);
+            session.setSessionId("session-1");
+            return session;
+        });
+        when(jwtService.generateToken(anyString(), anyString(), anyString(), anyString())).thenReturn("signed-token");
+
+        LoginResponse response = authService.login(loginRequest("alice", "pw"), httpServletRequest);
+
+        assertThat(response.getToken()).isEqualTo("signed-token");
     }
 
     @Test
@@ -219,7 +254,7 @@ class AuthServiceTest {
 
     @Test
     void logout_blocklistsTokenAndRevokesSession() {
-        Date expiresAt = new Date(System.currentTimeMillis() + 60_000);
+        Instant expiresAt = Instant.now().plusSeconds(60);
         JwtService.Identity identity = new JwtService.Identity("user-1", "alice", "Admin", "session-1", expiresAt);
         when(jwtService.verify("raw-token")).thenReturn(identity);
 
@@ -238,7 +273,7 @@ class AuthServiceTest {
 
     @Test
     void logout_stillBlocklists_evenWhenNoMatchingSessionRow() {
-        Date expiresAt = new Date(System.currentTimeMillis() + 60_000);
+        Instant expiresAt = Instant.now().plusSeconds(60);
         JwtService.Identity identity = new JwtService.Identity("user-1", "alice", "Admin", "session-1", expiresAt);
         when(jwtService.verify("raw-token")).thenReturn(identity);
         when(userSessionRepository.findById("session-1")).thenReturn(Optional.empty());
@@ -340,6 +375,42 @@ class AuthServiceTest {
         ResetPasswordRequest request = resetRequest("good-token", "NewPassw0rd!");
 
         assertThatThrownBy(() -> authService.resetPassword(request))
+                .isInstanceOf(NotFoundException.class);
+    }
+
+    // ── verifyEmail ──────────────────────────────────────────────────────────
+
+    @Test
+    void verifyEmail_throwsBadRequest_whenTokenUnknown() {
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.get("email-verify:bogus")).thenReturn(null);
+
+        assertThatThrownBy(() -> authService.verifyEmail("bogus"))
+                .isInstanceOf(BadRequestException.class);
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void verifyEmail_setsEmailVerifiedAtAndDeletesToken_whenTokenValid() {
+        existingUser.setEmailVerifiedAt(null);
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.get("email-verify:good-token")).thenReturn("user-1");
+        when(userRepository.findById("user-1")).thenReturn(Optional.of(existingUser));
+        when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        authService.verifyEmail("good-token");
+
+        assertThat(existingUser.getEmailVerifiedAt()).isNotNull();
+        verify(redisTemplate).delete("email-verify:good-token");
+    }
+
+    @Test
+    void verifyEmail_throwsNotFound_whenUserBehindTokenNoLongerExists() {
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.get("email-verify:good-token")).thenReturn("ghost-user");
+        when(userRepository.findById("ghost-user")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> authService.verifyEmail("good-token"))
                 .isInstanceOf(NotFoundException.class);
     }
 

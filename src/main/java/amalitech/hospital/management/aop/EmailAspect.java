@@ -19,6 +19,7 @@ import org.springframework.stereotype.Component;
 import java.io.UnsupportedEncodingException;
 import java.time.LocalDateTime;
 import java.time.Year;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -46,6 +47,8 @@ public class EmailAspect {
 
     private static final Logger log = LoggerFactory.getLogger(EmailAspect.class);
     private static final DateTimeFormatter DISPLAY_FORMAT = DateTimeFormatter.ofPattern("MMMM d, yyyy 'at' h:mm a");
+    /** Every template variable key repeated across every {@code case} below. */
+    private static final String VAR_RECIPIENT_NAME = "recipientName";
 
     private final JavaMailSender mailSender;
     private final EmailTemplateRenderer templateRenderer;
@@ -70,7 +73,7 @@ public class EmailAspect {
         Map<String, String> vars = new LinkedHashMap<>();
         vars.put("appUrl", appUrl);
         vars.put("supportEmail", supportEmail);
-        vars.put("year", String.valueOf(Year.now().getValue()));
+        vars.put("year", String.valueOf(Year.now(ZoneOffset.UTC).getValue()));
 
         String toEmail;
         String subject;
@@ -84,7 +87,7 @@ public class EmailAspect {
         switch (templateName) {
             case "otp" -> {
                 toEmail = (String) args[0];
-                vars.put("recipientName", (String) args[1]);
+                vars.put(VAR_RECIPIENT_NAME, (String) args[1]);
                 vars.put("otpCode", (String) args[2]);
                 vars.put("expiryHours", String.valueOf(args[3]));
                 vars.put("expiryDate", ((LocalDateTime) args[4]).format(DISPLAY_FORMAT));
@@ -93,23 +96,39 @@ public class EmailAspect {
             }
             case "passwordReset" -> {
                 toEmail = (String) args[0];
-                vars.put("recipientName", (String) args[1]);
+                vars.put(VAR_RECIPIENT_NAME, (String) args[1]);
                 vars.put("resetToken", (String) args[2]);
                 vars.put("resetUrl", (String) args[3]);
                 vars.put("expiryMinutes", String.valueOf(args[4]));
                 subject = "Reset your HMS password";
                 templateFile = "password-reset";
             }
+            case "emailVerification" -> {
+                toEmail = (String) args[0];
+                vars.put(VAR_RECIPIENT_NAME, (String) args[1]);
+                vars.put("verifyUrl", (String) args[2]);
+                vars.put("expiryHours", String.valueOf(args[3]));
+                subject = "Verify your HMS email address";
+                templateFile = "email-verification";
+            }
+            case "accountCreated" -> {
+                toEmail = (String) args[0];
+                vars.put(VAR_RECIPIENT_NAME, (String) args[1]);
+                vars.put("username", (String) args[1]);
+                vars.put("generatedPassword", (String) args[2]);
+                subject = "Your HMS account has been created";
+                templateFile = "account-created";
+            }
             case "passwordChanged" -> {
                 toEmail = (String) args[0];
-                vars.put("recipientName", (String) args[1]);
+                vars.put(VAR_RECIPIENT_NAME, (String) args[1]);
                 vars.put("changedAt", ((LocalDateTime) args[2]).format(DISPLAY_FORMAT));
                 subject = "Your HMS password was changed";
                 templateFile = "password-changed";
             }
             case "generic" -> {
                 toEmail = (String) args[0];
-                vars.put("recipientName", (String) args[1]);
+                vars.put(VAR_RECIPIENT_NAME, (String) args[1]);
                 subject = (String) args[2];
                 vars.put("heading", (String) args[3]);
                 vars.put("bodyHtml", (String) args[4]);

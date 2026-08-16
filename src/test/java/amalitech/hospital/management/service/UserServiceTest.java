@@ -1,5 +1,6 @@
 package amalitech.hospital.management.service;
 
+import amalitech.hospital.management.dto.user.AdminCreateUserRequest;
 import amalitech.hospital.management.dto.user.UserRequest;
 import amalitech.hospital.management.dto.user.UserResponse;
 import amalitech.hospital.management.dto.user.role.RoleResponse;
@@ -22,9 +23,12 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.data.web.PagedModel;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -32,6 +36,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -47,6 +52,8 @@ class UserServiceTest {
     @Mock private RoleRepository roleRepository;
     @Mock private PasswordEncoder passwordEncoder;
     @Mock private MailService mailService;
+    @Mock private StringRedisTemplate redisTemplate;
+    @Mock private ValueOperations<String, String> valueOperations;
     // Stands in for the self-injected AOP proxy reference — findUsersPage is
     // @FindUserData-annotated and normally intercepted by FindUserDataAspect; mocked
     // here at the boundary rather than exercised for real (see CLAUDE.md's Testing section).
@@ -59,7 +66,7 @@ class UserServiceTest {
     @BeforeEach
     void setUp() {
         userService = new UserService(userRepository, userRoleRepository, roleRepository, passwordEncoder,
-                mailService, "http://localhost:3000", self);
+                mailService, redisTemplate, "http://localhost:3000", 24L, self);
 
         existingUser = new User();
         existingUser.setUserId("user-1");
@@ -167,6 +174,7 @@ class UserServiceTest {
         when(userRepository.existsByEmail("bob@example.com")).thenReturn(false);
         when(passwordEncoder.encode("Passw0rd!")).thenReturn("hashed-pw");
         when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
 
         UserResponse response = userService.createUser(request);
 
@@ -176,8 +184,32 @@ class UserServiceTest {
         assertThat(saved.getPasswordHash()).isEqualTo("hashed-pw");
         assertThat(saved.getIsActive()).isTrue();
         assertThat(saved.getCreatedAt()).isNotNull();
+        assertThat(saved.getEmailVerifiedAt()).isNull(); // not verified yet — the whole point of the new flow
         assertThat(response.getUsername()).isEqualTo("bob");
-        verify(mailService).sendNotificationEmail(eq("bob@example.com"), eq("bob"), anyString(), anyString(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void createUser_withEmail_generatesVerificationTokenAndSendsLink() {
+        UserRequest request = requestFor("bob", "bob@example.com", "Passw0rd!");
+        when(userRepository.existsByUsername("bob")).thenReturn(false);
+        when(userRepository.existsByEmail("bob@example.com")).thenReturn(false);
+        when(userRepository.save(any(User.class))).thenAnswer(inv -> {
+            User saved = inv.getArgument(0);
+            saved.setUserId("user-generated-id"); // simulates @GeneratedValue on insert
+            return saved;
+        });
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+
+        userService.createUser(request);
+
+        verify(valueOperations).set(
+                org.mockito.ArgumentMatchers.startsWith("email-verify:"),
+                eq("user-generated-id"),
+                eq(Duration.ofHours(24)));
+        verify(mailService).sendEmailVerificationEmail(
+                eq("bob@example.com"), eq("bob"),
+                org.mockito.ArgumentMatchers.startsWith("http://localhost:3000/verify-email?token="),
+                eq(24));
     }
 
     @Test
@@ -189,7 +221,71 @@ class UserServiceTest {
         userService.createUser(request);
 
         verify(userRepository, never()).existsByEmail(anyString());
-        verify(mailService, never()).sendNotificationEmail(any(), any(), any(), any(), any(), any(), any());
+        verify(redisTemplate, never()).opsForValue();
+        verify(mailService, never()).sendEmailVerificationEmail(any(), any(), any(), anyInt());
+    }
+
+    // ── createUserByAdmin ────────────────────────────────────────────────────
+
+    @Test
+    void createUserByAdmin_throwsConflict_whenUsernameTaken() {
+        when(userRepository.existsByUsername("bob")).thenReturn(true);
+        AdminCreateUserRequest request = adminRequestFor("bob", "bob@example.com");
+
+        assertThatThrownBy(() -> userService.createUserByAdmin(request))
+                .isInstanceOf(ConflictException.class);
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void createUserByAdmin_throwsConflict_whenEmailTaken() {
+        when(userRepository.existsByUsername("bob")).thenReturn(false);
+        when(userRepository.existsByEmail("bob@example.com")).thenReturn(true);
+        AdminCreateUserRequest request = adminRequestFor("bob", "bob@example.com");
+
+        assertThatThrownBy(() -> userService.createUserByAdmin(request))
+                .isInstanceOf(ConflictException.class);
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void createUserByAdmin_generatesPasswordThatSatisfiesTheComplexityPolicy_andMarksEmailVerified() {
+        when(userRepository.existsByUsername("bob")).thenReturn(false);
+        when(userRepository.existsByEmail("bob@example.com")).thenReturn(false);
+        when(passwordEncoder.encode(anyString())).thenReturn("hashed-generated-pw");
+        when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+        AdminCreateUserRequest request = adminRequestFor("bob", "bob@example.com");
+
+        UserResponse response = userService.createUserByAdmin(request);
+
+        ArgumentCaptor<String> passwordCaptor = ArgumentCaptor.forClass(String.class);
+        verify(passwordEncoder).encode(passwordCaptor.capture());
+        String generatedPassword = passwordCaptor.getValue();
+        // Same complexity policy UserRequest.password's own @Pattern enforces.
+        assertThat(generatedPassword)
+                .hasSizeGreaterThanOrEqualTo(8)
+                .matches("^(?=.*[A-Z])(?=.*[a-z])(?=.*\\d)(?=.*[@$!%*?&])[A-Za-z\\d@$!%*?&]+$");
+
+        ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
+        verify(userRepository).save(userCaptor.capture());
+        assertThat(userCaptor.getValue().getEmailVerifiedAt()).isNotNull();
+        assertThat(userCaptor.getValue().getPasswordHash()).isEqualTo("hashed-generated-pw");
+        assertThat(response.getUsername()).isEqualTo("bob");
+
+        verify(mailService).sendGeneratedPasswordEmail(eq("bob@example.com"), eq("bob"), eq(generatedPassword));
+    }
+
+    @Test
+    void createUserByAdmin_generatesADifferentPassword_everyCall() {
+        when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        userService.createUserByAdmin(adminRequestFor("bob1", "bob1@example.com"));
+        userService.createUserByAdmin(adminRequestFor("bob2", "bob2@example.com"));
+
+        ArgumentCaptor<String> passwordCaptor = ArgumentCaptor.forClass(String.class);
+        verify(passwordEncoder, times(2)).encode(passwordCaptor.capture());
+        List<String> generated = passwordCaptor.getAllValues();
+        assertThat(generated.get(0)).isNotEqualTo(generated.get(1));
     }
 
     // ── updateUser ───────────────────────────────────────────────────────────
@@ -220,6 +316,17 @@ class UserServiceTest {
         when(userRepository.findById("user-1")).thenReturn(Optional.of(existingUser));
         when(userRepository.existsByUsername("carol")).thenReturn(true);
         UserRequest request = requestFor("carol", "alice@example.com", "Passw0rd!");
+
+        assertThatThrownBy(() -> userService.updateUser("user-1", request))
+                .isInstanceOf(ConflictException.class);
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void updateUser_throwsConflict_whenNewEmailTaken() {
+        when(userRepository.findById("user-1")).thenReturn(Optional.of(existingUser));
+        when(userRepository.existsByEmail("taken@example.com")).thenReturn(true);
+        UserRequest request = requestFor("alice", "taken@example.com", "Passw0rd!");
 
         assertThatThrownBy(() -> userService.updateUser("user-1", request))
                 .isInstanceOf(ConflictException.class);
@@ -363,6 +470,13 @@ class UserServiceTest {
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────
+
+    private static AdminCreateUserRequest adminRequestFor(String username, String email) {
+        AdminCreateUserRequest request = new AdminCreateUserRequest();
+        request.setUsername(username);
+        request.setEmail(email);
+        return request;
+    }
 
     private static UserRequest requestFor(String username, String email, String password) {
         UserRequest request = new UserRequest();

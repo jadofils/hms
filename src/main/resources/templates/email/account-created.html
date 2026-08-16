@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<!--
+  HMS transactional email — admin-provisioned account, generated password delivery.
+  Shares the design tokens documented in otp-verification.html/password-reset.html.
+
+  Placeholders: {{recipientName}} {{username}} {{generatedPassword}}
+  {{appUrl}} {{supportEmail}} {{year}}
+-->
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+<title>Your HMS account has been created</title>
+<!--[if mso]>
+<noscript>
+<xml>
+<o:OfficeDocumentSettings>
+<o:PixelsPerInch>96</o:PixelsPerInch>
+</o:OfficeDocumentSettings>
+</xml>
+</noscript>
+<![endif]-->
+<style>
+  body, table, td { font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+  body { margin: 0; padding: 0; background-color: #F1F4F8; }
+  img { border: 0; line-height: 100%; outline: none; text-decoration: none; }
+  a.cta-button:hover { background-color: #33C1F2 !important; }
+  a.text-link { color: #0077A3; text-decoration: underline; }
+  a.text-link:hover { color: #0B2545; }
+  .nav-link:hover { color: #FFFFFF !important; }
+  @media only screen and (max-width: 600px) {
+    .container { width: 100% !important; }
+    .fluid-padding { padding-left: 20px !important; padding-right: 20px !important; }
+  }
+</style>
+</head>
+<body style="margin:0; padding:0; background-color:#F1F4F8;">
+  <div style="display:none; max-height:0; overflow:hidden; opacity:0; mso-hide:all;">
+    Your HMS account has been created — sign in with the generated password below.
+  </div>
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#F1F4F8;">
+    <tr>
+      <td align="center" style="padding: 32px 16px;">
+        <table role="presentation" class="container" width="600" cellpadding="0" cellspacing="0" style="width:600px; max-width:600px; background-color:#FFFFFF; border-radius:8px; overflow:hidden; box-shadow:0 1px 3px rgba(11,37,69,0.08);">
+
+          <!-- Header -->
+          <tr>
+            <td style="background-color:#0B2545; padding:28px 40px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="font-size:20px; font-weight:700; color:#FFFFFF; letter-spacing:0.5px;">
+                    HMS <span style="color:#00AEEF;">&middot;</span> Hospital Management System
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Navigation bar -->
+          <tr>
+            <td style="background-color:#081B33; padding:12px 40px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="font-size:13px;">
+                    <a href="{{appUrl}}" class="nav-link" style="color:#00AEEF; text-decoration:none; margin-right:20px;">Dashboard</a>
+                    <a href="mailto:{{supportEmail}}" class="nav-link" style="color:#00AEEF; text-decoration:none;">Help</a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td class="fluid-padding" style="padding:40px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="font-size:22px; font-weight:700; color:#101828; padding-bottom:12px;">
+                    Your account is ready
+                  </td>
+                </tr>
+                <tr>
+                  <td style="font-size:15px; line-height:24px; color:#4B5563; padding-bottom:28px;">
+                    Hi {{recipientName}},<br /><br />
+                    An administrator created an HMS account for you. Use the username
+                    and temporary password below to sign in — you'll be able to change
+                    the password once you're logged in.
+                  </td>
+                </tr>
+
+                <!-- Credentials -->
+                <tr>
+                  <td style="padding-bottom:24px;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td style="font-size:12px; color:#6B7280; padding-bottom:8px;">Username</td>
+                      </tr>
+                      <tr>
+                        <td style="background-color:#F8FAFC; border:1px solid #E5E7EB; border-radius:6px; padding:12px 16px; font-family:'Courier New', Courier, monospace; font-size:14px; color:#0B2545; word-break:break-all;">
+                          {{username}}
+                        </td>
+                      </tr>
+                      <tr><td style="height:16px; font-size:0; line-height:0;">&nbsp;</td></tr>
+                      <tr>
+                        <td style="font-size:12px; color:#6B7280; padding-bottom:8px;">Temporary password</td>
+                      </tr>
+                      <tr>
+                        <td style="background-color:#F8FAFC; border:1px solid #E5E7EB; border-radius:6px; padding:12px 16px; font-family:'Courier New', Courier, monospace; font-size:14px; color:#0B2545; word-break:break-all;">
+                          {{generatedPassword}}
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+
+                <!-- CTA -->
+                <tr>
+                  <td align="center" style="padding-bottom:24px;">
+                    <!--[if mso]>
+                    <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" href="{{appUrl}}" style="height:48px;v-text-anchor:middle;width:220px;" arcsize="12%" fillcolor="#00AEEF" strokecolor="#00AEEF">
+                    <w:anchorlock/>
+                    <center style="color:#0B2545;font-family:Segoe UI,Arial,sans-serif;font-size:16px;font-weight:700;">Sign In</center>
+                    </v:roundrect>
+                    <![endif]-->
+                    <!--[if !mso]><!-->
+                    <a href="{{appUrl}}" class="cta-button" style="display:inline-block; background-color:#00AEEF; color:#0B2545; font-size:16px; font-weight:700; text-decoration:none; padding:15px 40px; border-radius:6px;">Sign In</a>
+                    <!--<![endif]-->
+                  </td>
+                </tr>
+
+                <!-- Security notice -->
+                <tr>
+                  <td style="background-color:#F1F4F8; border-left:4px solid #00AEEF; border-radius:4px; padding:16px 20px; font-size:13px; line-height:20px; color:#4B5563;">
+                    <strong style="color:#101828;">Keep this password private.</strong>
+                    Treat it like any other password — don't share it, and consider
+                    changing it after your first sign-in. If you didn't expect this
+                    account, <a href="mailto:{{supportEmail}}" class="text-link">contact support</a>.
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background-color:#0B2545; padding:28px 40px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="font-size:13px; color:#B8C4D9; padding-bottom:10px;">
+                    <a href="mailto:{{supportEmail}}" style="color:#00AEEF; text-decoration:none;">Help Center</a>
+                    &nbsp;&middot;&nbsp;
+                    <a href="{{appUrl}}/privacy" style="color:#00AEEF; text-decoration:none;">Privacy Policy</a>
+                    &nbsp;&middot;&nbsp;
+                    <a href="mailto:{{supportEmail}}" style="color:#00AEEF; text-decoration:none;">Contact Support</a>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="font-size:12px; color:#7C8AA5;">
+                    &copy; {{year}} Hospital Management System. This is an automated message — please don't reply directly to this email.
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

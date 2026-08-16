@@ -1,6 +1,7 @@
 package amalitech.hospital.management.service;
 
 import amalitech.hospital.management.annotation.FindUserData;
+import amalitech.hospital.management.dto.user.AdminCreateUserRequest;
 import amalitech.hospital.management.dto.user.UserRequest;
 import amalitech.hospital.management.dto.user.UserResponse;
 import amalitech.hospital.management.dto.user.role.RoleResponse;
@@ -24,12 +25,18 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.web.PagedModel;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.security.SecureRandom;
+import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -43,14 +50,21 @@ import java.util.List;
 @RequiredArgsConstructor
 public class UserService {
 
+    private static final String EMAIL_VERIFY_TOKEN_PREFIX = "email-verify:";
+
     private final UserRepository userRepository;
     private final UserRoleRepository userRoleRepository;
     private final RoleRepository roleRepository;
     private final PasswordEncoder passwordEncoder;
     private final MailService mailService;
+    private final StringRedisTemplate redisTemplate;
+    private final SecureRandom secureRandom = new SecureRandom();
 
     @Value("${app.frontend-base-url}")
     private final String frontendBaseUrl;
+
+    @Value("${app.email-verification-ttl-hours}")
+    private final long emailVerificationTtlHours;
 
     /**
      * Self-injected proxy reference, used only to call this class's own
@@ -130,16 +144,94 @@ public class UserService {
         UserResponse response = toResponse(userRepository.save(user));
 
         // Registration can't require an email (see the null-guarded existsByEmail check
-        // above), so this is skipped rather than sent to a null address.
+        // above), so this is skipped rather than sent to a null address — and, per
+        // AuthService.login's gate, an account with no email is exempt from needing
+        // email verification at all (there's nothing to verify).
         if (user.getEmail() != null) {
-            mailService.sendNotificationEmail(user.getEmail(), user.getUsername(), "Welcome to HMS",
-                    "Welcome to HMS",
-                    "Your account has been created. An administrator needs to assign you a role "
-                            + "before you can log in — you'll be notified once that's done.",
-                    "Open HMS", frontendBaseUrl);
+            sendVerificationEmail(user);
         }
 
         return response;
+    }
+
+    /** Generates a single-use, Redis-backed verification token (mirrors
+     *  {@code AuthService.forgotPassword}'s own reset-token pattern exactly) and emails
+     *  the confirmation link. Consumed by {@code AuthService.verifyEmail}. */
+    private void sendVerificationEmail(User user) {
+        byte[] bytes = new byte[32];
+        secureRandom.nextBytes(bytes);
+        String token = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+        redisTemplate.opsForValue().set(EMAIL_VERIFY_TOKEN_PREFIX + token, user.getUserId(),
+                Duration.ofHours(emailVerificationTtlHours));
+        String verifyUrl = frontendBaseUrl + "/verify-email?token=" + token;
+        mailService.sendEmailVerificationEmail(user.getEmail(), user.getUsername(), verifyUrl,
+                (int) emailVerificationTtlHours);
+    }
+
+    /**
+     * Admin-provisioned account — unlike {@link #createUser} (self-registration, caller
+     * sets their own password), the caller here can't set one at all (see
+     * {@link AdminCreateUserRequest}'s own Javadoc): a strong password is always
+     * generated and emailed. Sets {@code emailVerifiedAt} immediately rather than going
+     * through the link flow — receiving the generated password at that address already
+     * proves deliverability, so there's nothing more to verify. Still has no role, same
+     * as a self-registered account — an administrator assigns one via the existing
+     * {@link #assignRole} endpoint.
+     */
+    @Transactional
+    public UserResponse createUserByAdmin(AdminCreateUserRequest request) {
+        if (userRepository.existsByUsername(request.getUsername())) {
+            throw new ConflictException("Username '" + request.getUsername() + "' is already taken");
+        }
+        if (userRepository.existsByEmail(request.getEmail())) {
+            throw new ConflictException("Email '" + request.getEmail() + "' is already registered");
+        }
+
+        String generatedPassword = generateRandomPassword();
+        LocalDateTime now = LocalDateTime.now();
+        User user = new User();
+        user.setUsername(request.getUsername());
+        user.setEmail(request.getEmail());
+        user.setPasswordHash(passwordEncoder.encode(generatedPassword));
+        user.setIsActive(true);
+        user.setEmailVerifiedAt(now);
+        user.setCreatedAt(now);
+        user.setUpdatedAt(now);
+        UserResponse response = toResponse(userRepository.save(user));
+
+        // Never returned in the API response, never logged — the only place this
+        // plaintext value ever appears is this one email.
+        mailService.sendGeneratedPasswordEmail(user.getEmail(), user.getUsername(), generatedPassword);
+
+        return response;
+    }
+
+    private static final String PASSWORD_UPPER = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    private static final String PASSWORD_LOWER = "abcdefghijklmnopqrstuvwxyz";
+    private static final String PASSWORD_DIGITS = "0123456789";
+    /** Same allowed special-character set {@code UserRequest.password}'s own regex requires. */
+    private static final String PASSWORD_SPECIAL = "@$!%*?&";
+    private static final String PASSWORD_ALL_CHARS =
+            PASSWORD_UPPER + PASSWORD_LOWER + PASSWORD_DIGITS + PASSWORD_SPECIAL;
+    private static final int GENERATED_PASSWORD_LENGTH = 12;
+
+    /** Builds one character from each required class first (guaranteeing the result
+     *  always satisfies the same complexity policy every other password on this system
+     *  is held to), fills the rest randomly, then shuffles so the guaranteed characters
+     *  aren't always in the same positions. */
+    private String generateRandomPassword() {
+        List<Character> chars = new ArrayList<>(GENERATED_PASSWORD_LENGTH);
+        chars.add(PASSWORD_UPPER.charAt(secureRandom.nextInt(PASSWORD_UPPER.length())));
+        chars.add(PASSWORD_LOWER.charAt(secureRandom.nextInt(PASSWORD_LOWER.length())));
+        chars.add(PASSWORD_DIGITS.charAt(secureRandom.nextInt(PASSWORD_DIGITS.length())));
+        chars.add(PASSWORD_SPECIAL.charAt(secureRandom.nextInt(PASSWORD_SPECIAL.length())));
+        while (chars.size() < GENERATED_PASSWORD_LENGTH) {
+            chars.add(PASSWORD_ALL_CHARS.charAt(secureRandom.nextInt(PASSWORD_ALL_CHARS.length())));
+        }
+        Collections.shuffle(chars, secureRandom);
+        StringBuilder builder = new StringBuilder(chars.size());
+        chars.forEach(builder::append);
+        return builder.toString();
     }
 
     @Transactional

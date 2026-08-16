@@ -35,6 +35,22 @@ public class MailService {
         throw new IllegalStateException("EmailAspect did not intercept this call");
     }
 
+    /** Self-registration email ownership verification — {@code verifyUrl} deep-links
+     *  into {@code GET /api/v1/auth/verify-email?token=...}. Sent from
+     *  {@code UserService.createUser} only when the registration included an email. */
+    @SendTemplatedEmail("emailVerification")
+    public void sendEmailVerificationEmail(String toEmail, String recipientName, String verifyUrl, int expiryHours) {
+        throw new IllegalStateException("EmailAspect did not intercept this call");
+    }
+
+    /** Admin-provisioned account — {@code plainPassword} is the one-time-generated
+     *  credential; never logged or persisted anywhere in plaintext, only emailed. Sent
+     *  from {@code UserService.createUserByAdmin}. */
+    @SendTemplatedEmail("accountCreated")
+    public void sendGeneratedPasswordEmail(String toEmail, String recipientName, String plainPassword) {
+        throw new IllegalStateException("EmailAspect did not intercept this call");
+    }
+
     /** Password changed confirmation — sent after both {@code resetPassword} and
      *  {@code changePassword} succeed, so an attacker changing a compromised password
      *  can't do so silently. */

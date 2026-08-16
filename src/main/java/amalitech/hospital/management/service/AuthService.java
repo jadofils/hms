@@ -45,6 +45,9 @@ public class AuthService {
     private static final String INVALID_CREDENTIALS = "Invalid username or password";
     private static final String RESET_TOKEN_PREFIX = "password-reset:";
     private static final Duration RESET_TOKEN_TTL = Duration.ofMinutes(30);
+    /** Same Redis key prefix {@code UserService.createUser} writes under — see
+     *  {@link #verifyEmail}. */
+    private static final String EMAIL_VERIFY_TOKEN_PREFIX = "email-verify:";
 
     private final UserRepository userRepository;
     private final UserRoleRepository userRoleRepository;
@@ -73,6 +76,12 @@ public class AuthService {
         }
         if (!Boolean.TRUE.equals(user.getIsActive())) {
             throw new UnauthorizedException("This account has been deactivated");
+        }
+        // An account with no email at all has nothing to verify (email is optional at
+        // registration — see UserService.createUser) and is exempt from this gate;
+        // one that supplied an email must click the link before logging in.
+        if (user.getEmail() != null && user.getEmailVerifiedAt() == null) {
+            throw new UnauthorizedException("Please verify your email before logging in");
         }
 
         String role = primaryRole(user.getUserId())
@@ -143,7 +152,32 @@ public class AuthService {
         revokeAllSessions(userId);
         // Notifies whoever holds the mailbox — including an attacker who reset a
         // compromised password — so a legitimate owner locked out can tell something happened.
-        mailService.sendPasswordChangedEmail(user.getEmail(), user.getUsername(), now);
+        // Skipped when there's no email on file (optional at registration — see
+        // UserService.createUser), same null-guard convention as there: EmailAspect's
+        // MimeMessageHelper.setTo(null) throws uncaught, so calling this unconditionally
+        // would 500 for any account that registered without an email.
+        if (user.getEmail() != null) {
+            mailService.sendPasswordChangedEmail(user.getEmail(), user.getUsername(), now);
+        }
+    }
+
+    /** Consumes the single-use token {@code UserService.createUser} emailed as a link.
+     *  Same shape as {@link #resetPassword}'s token handling: look up, delete
+     *  immediately (single-use), then act on the resolved user. */
+    @Transactional
+    public void verifyEmail(String token) {
+        String key = EMAIL_VERIFY_TOKEN_PREFIX + token;
+        String userId = redisTemplate.opsForValue().get(key);
+        if (userId == null) {
+            throw new BadRequestException("Invalid or expired verification token");
+        }
+        redisTemplate.delete(key);
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new NotFoundException("User not found: " + userId));
+        user.setEmailVerifiedAt(LocalDateTime.now());
+        user.setUpdatedAt(LocalDateTime.now());
+        userRepository.save(user);
     }
 
     @Transactional
@@ -157,7 +191,10 @@ public class AuthService {
         user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
         user.setUpdatedAt(now);
         userRepository.save(user);
-        mailService.sendPasswordChangedEmail(user.getEmail(), user.getUsername(), now);
+        // See resetPassword's identical guard above for why this is conditional.
+        if (user.getEmail() != null) {
+            mailService.sendPasswordChangedEmail(user.getEmail(), user.getUsername(), now);
+        }
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
