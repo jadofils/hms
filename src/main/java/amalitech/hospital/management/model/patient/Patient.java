@@ -1,5 +1,9 @@
 package amalitech.hospital.management.model.patient;
 
+import amalitech.hospital.management.enums.Gender;
+import amalitech.hospital.management.enums.PatientStatus;
+import amalitech.hospital.management.enums.converter.GenderConverter;
+import amalitech.hospital.management.enums.converter.PatientStatusConverter;
 import jakarta.persistence.*;
 import lombok.Data;
 
@@ -33,8 +37,9 @@ public class Patient {
     @Column(name = "dob", nullable = false)
     private LocalDate dob;
 
+    @Convert(converter = GenderConverter.class)
     @Column(name = "gender", nullable = false, length = 10)
-    private String gender; // values: 'M', 'F', 'Other'
+    private Gender gender;
 
     @Column(name = "phone", unique = true, length = 20)
     private String phone;
@@ -45,8 +50,9 @@ public class Patient {
     @Column(name = "address", length = 255)
     private String address;
 
+    @Convert(converter = PatientStatusConverter.class)
     @Column(name = "status", nullable = false, length = 20)
-    private String status = "active"; // values: 'active', 'inactive'
+    private PatientStatus status = PatientStatus.ACTIVE;
 
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
