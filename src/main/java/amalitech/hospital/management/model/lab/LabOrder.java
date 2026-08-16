@@ -1,5 +1,7 @@
 package amalitech.hospital.management.model.lab;
 
+import amalitech.hospital.management.enums.LabOrderStatus;
+import amalitech.hospital.management.enums.converter.LabOrderStatusConverter;
 import amalitech.hospital.management.model.doctor.Doctor;
 import amalitech.hospital.management.model.patient.Appointment;
 import jakarta.persistence.*;
@@ -37,9 +39,9 @@ public class LabOrder {
     @Column(name = "test_name", nullable = false, length = 150)
     private String testName;
 
+    @Convert(converter = LabOrderStatusConverter.class)
     @Column(name = "status", nullable = false, length = 20)
-    private String status = "ordered";
-    // values: 'ordered','in_progress','completed','cancelled'
+    private LabOrderStatus status = LabOrderStatus.ORDERED;
 
     @Column(name = "ordered_at", nullable = false)
     private LocalDateTime orderedAt;

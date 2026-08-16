@@ -1,0 +1,84 @@
+package amalitech.hospital.management.controller;
+
+import amalitech.hospital.management.annotation.RequirePermission;
+import amalitech.hospital.management.dto.common.ApiResult;
+import amalitech.hospital.management.dto.lab.LabOrderRequest;
+import amalitech.hospital.management.dto.lab.LabOrderResponse;
+import amalitech.hospital.management.enums.PermissionAction;
+import amalitech.hospital.management.enums.Resource;
+import amalitech.hospital.management.service.LabOrderService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PagedModel;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+/**
+ * Lab order management — backed by {@link LabOrderService}. See that class for
+ * caching/exception/transaction behavior; this layer only maps HTTP <-> DTOs. Results
+ * are managed separately — see {@code LabResultController}.
+ */
+@RestController
+@RequestMapping("/api/v1/lab-orders")
+@Tag(name = "Lab Orders", description = "Lab test orders requested per appointment")
+@RequiredArgsConstructor
+public class LabOrderController {
+
+    private final LabOrderService labOrderService;
+
+    @GetMapping
+    @Operation(summary = "List lab orders (paginated, sortable)")
+    @ApiResponse(responseCode = "200", description = "Lab orders returned")
+    @RequirePermission(resource = Resource.LAB_ORDERS, action = PermissionAction.READ)
+    public ResponseEntity<ApiResult<PagedModel<LabOrderResponse>>> getLabOrders(Pageable pageable) {
+        return ResponseEntity.ok(ApiResult.of("Lab orders retrieved", labOrderService.getLabOrders(pageable)));
+    }
+
+    @GetMapping("/{labOrderId}")
+    @Operation(summary = "Get a lab order by id")
+    @ApiResponse(responseCode = "200", description = "Lab order found")
+    @ApiResponse(responseCode = "404", description = "Lab order not found")
+    @RequirePermission(resource = Resource.LAB_ORDERS, action = PermissionAction.READ)
+    public ResponseEntity<ApiResult<LabOrderResponse>> getLabOrder(
+            @Parameter(description = "Lab order UUID") @PathVariable String labOrderId) {
+        return ResponseEntity.ok(ApiResult.of("Lab order retrieved", labOrderService.getLabOrder(labOrderId)));
+    }
+
+    @PostMapping
+    @Operation(summary = "Create a lab order")
+    @ApiResponse(responseCode = "201", description = "Lab order created")
+    @ApiResponse(responseCode = "404", description = "Appointment or doctor not found")
+    @RequirePermission(resource = Resource.LAB_ORDERS, action = PermissionAction.CREATE)
+    public ResponseEntity<ApiResult<LabOrderResponse>> createLabOrder(@Valid @RequestBody LabOrderRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResult.of("Lab order created", labOrderService.createLabOrder(request)));
+    }
+
+    @PutMapping("/{labOrderId}")
+    @Operation(summary = "Update a lab order")
+    @ApiResponse(responseCode = "200", description = "Lab order updated")
+    @ApiResponse(responseCode = "404", description = "Lab order, appointment, or doctor not found")
+    @RequirePermission(resource = Resource.LAB_ORDERS, action = PermissionAction.UPDATE)
+    public ResponseEntity<ApiResult<LabOrderResponse>> updateLabOrder(
+            @Parameter(description = "Lab order UUID") @PathVariable String labOrderId,
+            @Valid @RequestBody LabOrderRequest request) {
+        return ResponseEntity.ok(ApiResult.of("Lab order updated", labOrderService.updateLabOrder(labOrderId, request)));
+    }
+
+    @DeleteMapping("/{labOrderId}")
+    @Operation(summary = "Delete a lab order")
+    @ApiResponse(responseCode = "204", description = "Lab order deleted")
+    @ApiResponse(responseCode = "404", description = "Lab order not found")
+    @RequirePermission(resource = Resource.LAB_ORDERS, action = PermissionAction.DELETE)
+    public ResponseEntity<Void> deleteLabOrder(
+            @Parameter(description = "Lab order UUID") @PathVariable String labOrderId) {
+        labOrderService.deleteLabOrder(labOrderId);
+        return ResponseEntity.noContent().build();
+    }
+}

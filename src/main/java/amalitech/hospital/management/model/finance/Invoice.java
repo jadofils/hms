@@ -1,5 +1,7 @@
 package amalitech.hospital.management.model.finance;
 
+import amalitech.hospital.management.enums.PaymentStatus;
+import amalitech.hospital.management.enums.converter.PaymentStatusConverter;
 import amalitech.hospital.management.model.patient.Appointment;
 import amalitech.hospital.management.model.patient.Patient;
 import jakarta.persistence.*;
@@ -38,9 +40,9 @@ public class Invoice {
     @Column(name = "total_amount", nullable = false, precision = 10, scale = 2)
     private BigDecimal totalAmount = BigDecimal.ZERO; // must be >= 0
 
+    @Convert(converter = PaymentStatusConverter.class)
     @Column(name = "payment_status", nullable = false, length = 20)
-    private String paymentStatus = "unpaid";
-    // values: 'unpaid','partially_paid','paid'
+    private PaymentStatus paymentStatus = PaymentStatus.UNPAID;
 
     @Column(name = "issued_at", nullable = false)
     private LocalDateTime issuedAt;
