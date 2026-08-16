@@ -17,14 +17,18 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
  *
  * {@link JwtAuthenticationFilter} runs ahead of Spring Security's own authentication
  * filter and populates the SecurityContext from any valid Bearer token, so protected
- * routes can rely on {@code SecurityContextHolder} once they exist.
+ * routes can rely on {@code SecurityContextHolder}.
  *
- * Route authorization itself is still left open ({@code anyRequest().permitAll()}) —
- * there is no login endpoint yet to issue a token against, so requiring authentication
- * now would make the still-stubbed {@code /api/v1/**} endpoints (and Swagger's
- * "Try it out") unreachable. Once a real login flow exists, tighten this to
- * {@code anyRequest().authenticated()} with explicit {@code permitAll} for {@code "/"},
- * {@code "/swagger-ui/**"}, {@code "/v3/api-docs/**"}, and the login route.
+ * URL-level route authorization is still left open ({@code anyRequest().permitAll()}) —
+ * deliberately, so Swagger's "Try it out" can always reach every route and get a real
+ * {@code 401}/{@code 403} response body back instead of being blocked earlier by a
+ * generic Spring Security page. Authorization itself is enforced one level down instead:
+ * {@code @RequirePermission} on individual controller methods, checked by
+ * {@code aop.AuthorizationAspect} against the caller's role via the
+ * {@code Role}/{@code Permission}/{@code RolePermission} tables — see that class's
+ * Javadoc. This still relies on {@code SecurityContextHolder} being populated the same
+ * way {@code authorizeHttpRequests(...).anyRequest().authenticated()} would use it; it's
+ * just checked by an {@code @Aspect} instead of Spring Security's own filter-chain rule.
  */
 @Configuration
 @EnableWebSecurity
@@ -40,7 +44,7 @@ public class SecurityConfig {
     }
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain securityFilterChain(HttpSecurity http) {
         http
             .csrf(csrf -> csrf.disable())
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
