@@ -1,13 +1,16 @@
 package amalitech.hospital.management.controller;
 
+import amalitech.hospital.management.annotation.RequirePermission;
+import amalitech.hospital.management.dto.common.ApiResult;
 import amalitech.hospital.management.dto.user.role.RoleRequest;
 import amalitech.hospital.management.dto.user.role.RoleResponse;
 import amalitech.hospital.management.dto.user.role.permission.PermissionResponse;
+import amalitech.hospital.management.enums.PermissionAction;
+import amalitech.hospital.management.enums.Resource;
 import amalitech.hospital.management.service.RoleService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
-import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -40,29 +43,29 @@ public class RoleController {
                     + "property is not validated ahead of time and currently surfaces as a "
                     + "400 rather than silently falling back.")
     @ApiResponse(responseCode = "200", description = "Roles returned")
-    public ResponseEntity<PagedModel<RoleResponse>> getRoles(Pageable pageable) {
-        return ResponseEntity.ok(roleService.getRoles(pageable));
+    @RequirePermission(resource = Resource.ROLES, action = PermissionAction.READ)
+    public ResponseEntity<ApiResult<PagedModel<RoleResponse>>> getRoles(Pageable pageable) {
+        return ResponseEntity.ok(ApiResult.of("Roles retrieved", roleService.getRoles(pageable)));
     }
 
     @GetMapping("/{roleId}")
     @Operation(summary = "Get a role by id")
-    @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Role found"),
-            @ApiResponse(responseCode = "404", description = "Role not found")
-    })
-    public ResponseEntity<RoleResponse> getRole(
+    @ApiResponse(responseCode = "200", description = "Role found")
+    @ApiResponse(responseCode = "404", description = "Role not found")
+    @RequirePermission(resource = Resource.ROLES, action = PermissionAction.READ)
+    public ResponseEntity<ApiResult<RoleResponse>> getRole(
             @Parameter(description = "Role UUID") @PathVariable String roleId) {
-        return ResponseEntity.ok(roleService.getRole(roleId));
+        return ResponseEntity.ok(ApiResult.of("Role retrieved", roleService.getRole(roleId)));
     }
 
     @PostMapping
     @Operation(summary = "Create a role")
-    @ApiResponses({
-            @ApiResponse(responseCode = "201", description = "Role created"),
-            @ApiResponse(responseCode = "409", description = "Role name already exists")
-    })
-    public ResponseEntity<RoleResponse> createRole(@Valid @RequestBody RoleRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(roleService.createRole(request));
+    @ApiResponse(responseCode = "201", description = "Role created")
+    @ApiResponse(responseCode = "409", description = "Role name already exists")
+    @RequirePermission(resource = Resource.ROLES, action = PermissionAction.CREATE)
+    public ResponseEntity<ApiResult<RoleResponse>> createRole(@Valid @RequestBody RoleRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResult.of("Role created", roleService.createRole(request)));
     }
 
     @PutMapping("/{roleId}")
@@ -70,16 +73,15 @@ public class RoleController {
             description = "Blocked while the role is still actively held by any user — "
                     + "revoke it from every holder first (see the role-assignment endpoints "
                     + "under Users).")
-    @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Role updated"),
-            @ApiResponse(responseCode = "404", description = "Role not found"),
-            @ApiResponse(responseCode = "409",
-                    description = "Role name already exists, or the role is still assigned to one or more users")
-    })
-    public ResponseEntity<RoleResponse> updateRole(
+    @ApiResponse(responseCode = "200", description = "Role updated")
+    @ApiResponse(responseCode = "404", description = "Role not found")
+    @ApiResponse(responseCode = "409",
+            description = "Role name already exists, or the role is still assigned to one or more users")
+    @RequirePermission(resource = Resource.ROLES, action = PermissionAction.UPDATE)
+    public ResponseEntity<ApiResult<RoleResponse>> updateRole(
             @Parameter(description = "Role UUID") @PathVariable String roleId,
             @Valid @RequestBody RoleRequest request) {
-        return ResponseEntity.ok(roleService.updateRole(roleId, request));
+        return ResponseEntity.ok(ApiResult.of("Role updated", roleService.updateRole(roleId, request)));
     }
 
     @DeleteMapping("/{roleId}")
@@ -87,11 +89,10 @@ public class RoleController {
             description = "Blocked while the role is still actively held by any user — "
                     + "revoke it from every holder first (see the role-assignment endpoints "
                     + "under Users).")
-    @ApiResponses({
-            @ApiResponse(responseCode = "204", description = "Role deleted"),
-            @ApiResponse(responseCode = "404", description = "Role not found"),
-            @ApiResponse(responseCode = "409", description = "Role is still assigned to one or more users")
-    })
+    @ApiResponse(responseCode = "204", description = "Role deleted")
+    @ApiResponse(responseCode = "404", description = "Role not found")
+    @ApiResponse(responseCode = "409", description = "Role is still assigned to one or more users")
+    @RequirePermission(resource = Resource.ROLES, action = PermissionAction.DELETE)
     public ResponseEntity<Void> deleteRole(
             @Parameter(description = "Role UUID") @PathVariable String roleId) {
         roleService.deleteRole(roleId);
@@ -103,18 +104,18 @@ public class RoleController {
     @GetMapping("/{roleId}/permissions")
     @Operation(summary = "List permissions granted to a role")
     @ApiResponse(responseCode = "200", description = "Permissions returned")
-    public ResponseEntity<List<PermissionResponse>> getRolePermissions(
+    @RequirePermission(resource = Resource.ROLES, action = PermissionAction.READ)
+    public ResponseEntity<ApiResult<List<PermissionResponse>>> getRolePermissions(
             @Parameter(description = "Role UUID") @PathVariable String roleId) {
-        return ResponseEntity.ok(roleService.getRolePermissions(roleId));
+        return ResponseEntity.ok(ApiResult.of("Permissions retrieved", roleService.getRolePermissions(roleId)));
     }
 
     @PostMapping("/{roleId}/permissions/{permissionId}")
     @Operation(summary = "Grant a permission to a role")
-    @ApiResponses({
-            @ApiResponse(responseCode = "204", description = "Permission granted"),
-            @ApiResponse(responseCode = "404", description = "Role or permission not found"),
-            @ApiResponse(responseCode = "409", description = "Role already has this permission")
-    })
+    @ApiResponse(responseCode = "204", description = "Permission granted")
+    @ApiResponse(responseCode = "404", description = "Role or permission not found")
+    @ApiResponse(responseCode = "409", description = "Role already has this permission")
+    @RequirePermission(resource = Resource.ROLES, action = PermissionAction.UPDATE)
     public ResponseEntity<Void> grantPermission(
             @Parameter(description = "Role UUID") @PathVariable String roleId,
             @Parameter(description = "Permission UUID") @PathVariable String permissionId) {
@@ -124,10 +125,9 @@ public class RoleController {
 
     @DeleteMapping("/{roleId}/permissions/{permissionId}")
     @Operation(summary = "Revoke a permission from a role")
-    @ApiResponses({
-            @ApiResponse(responseCode = "204", description = "Permission revoked"),
-            @ApiResponse(responseCode = "404", description = "Role does not have this permission")
-    })
+    @ApiResponse(responseCode = "204", description = "Permission revoked")
+    @ApiResponse(responseCode = "404", description = "Role does not have this permission")
+    @RequirePermission(resource = Resource.ROLES, action = PermissionAction.UPDATE)
     public ResponseEntity<Void> revokePermission(
             @Parameter(description = "Role UUID") @PathVariable String roleId,
             @Parameter(description = "Permission UUID") @PathVariable String permissionId) {
