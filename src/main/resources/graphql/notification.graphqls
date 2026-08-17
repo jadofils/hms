@@ -1,0 +1,39 @@
+# Notification — references User (actor) only; nothing else depends on it.
+# payload/channels/status/recipients mirror NotificationResponse's own shape exactly
+# (opaque JSON strings / a plain string list — see NotificationService's Javadoc for why).
+
+type Notification {
+    notificationId: ID!
+    type: String!
+    actorUserId: ID
+    actorUsername: String
+    recipients: [String!]!
+    payload: String
+    channels: String
+    status: String
+    priority: String!
+    readAt: LocalDateTime
+    createdAt: LocalDateTime!
+}
+
+input NotificationInput {
+    type: String!
+    actorUserId: ID
+    recipients: [String!]!
+    payload: String
+    channels: String
+    status: String
+    priority: String
+}
+
+extend type Query {
+    notifications(page: Int! = 0, size: Int! = 20): [Notification!]!
+    notification(notificationId: ID!): Notification
+}
+
+extend type Mutation {
+    createNotification(input: NotificationInput!): Notification!
+    updateNotification(notificationId: ID!, input: NotificationInput!): Notification!
+    markNotificationAsRead(notificationId: ID!): Notification!
+    deleteNotification(notificationId: ID!): Boolean!
+}
