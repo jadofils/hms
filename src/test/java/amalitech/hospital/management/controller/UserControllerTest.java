@@ -41,7 +41,8 @@ class UserControllerTest extends AbstractControllerTest {
                 .andExpect(status().isOk());
 
         String updatedUsername = "testuser" + uniqueDigits(6);
-        String updateBody = "{\"username\":\"" + updatedUsername + "\",\"password\":\"TestPass1!\"}";
+        String updateBody = "{\"username\":\"" + updatedUsername + "\",\"email\":\"" + updatedUsername
+                + "@example.com\",\"password\":\"TestPass1!\"}";
         mockMvc.perform(put("/api/v1/users/" + userId)
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
