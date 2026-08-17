@@ -59,9 +59,17 @@ public class RoleService {
 
     @Cacheable(value = "roles", key = "#roleId")
     public RoleResponse getRole(String roleId) {
-        return toResponse(findRoleOrThrow(roleId));
+        RoleResponse response = toResponse(findRoleOrThrow(roleId));
+        response.setPermissions(getRolePermissions(roleId));
+        return response;
     }
 
+    /**
+     * Grants {@code request.getPermissionIds()} (if any) to the new role in the same
+     * transaction — an unknown permission id throws (via {@link #grantPermission}) and
+     * rolls the whole creation back, rather than leaving a role behind with only some of
+     * the requested permissions.
+     */
     @Transactional
     public RoleResponse createRole(RoleRequest request) {
         if (roleRepository.existsByRoleName(request.getRoleName())) {
@@ -73,7 +81,15 @@ public class RoleService {
         role.setDescription(request.getDescription());
         role.setCreatedAt(now);
         role.setUpdatedAt(now);
-        return toResponse(roleRepository.save(role));
+        Role saved = roleRepository.save(role);
+
+        if (request.getPermissionIds() != null) {
+            for (String permissionId : request.getPermissionIds()) {
+                grantPermission(saved.getRoleId(), permissionId);
+            }
+        }
+
+        return toResponse(saved);
     }
 
     @Transactional

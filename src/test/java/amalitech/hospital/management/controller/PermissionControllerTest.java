@@ -2,54 +2,48 @@ package amalitech.hospital.management.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MvcResult;
 
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * Exercises {@link PermissionController} through real HTTP — the service layer already
  * has its own thorough unit tests ({@code PermissionServiceTest}); this only needs to
- * reach every controller method body (HTTP <-> DTO <-> service mapping), so assertions
- * stay light (status codes), not exhaustive behavioral checks.
+ * reach every controller method body. Read-only: permissions are a fixed, system-managed
+ * catalog seeded by {@code DataSeeder} (see {@code PermissionService}'s Javadoc), so these
+ * tests read the already-seeded catalog rather than creating a throwaway permission.
  */
 class PermissionControllerTest extends AbstractControllerTest {
 
     @Test
-    void fullCrudLifecycle_throughRealHttpEndpoints() throws Exception {
+    void getPermissions_returnsTheSeededCatalog() throws Exception {
         String token = adminToken();
-        String resource = "test-resource-" + uniqueDigits(9);
 
-        mockMvc.perform(get("/api/v1/permissions?sort=resource,asc")
+        MvcResult result = mockMvc.perform(get("/api/v1/permissions?sort=resource,asc&size=200")
                         .header("Authorization", "Bearer " + token))
-                .andExpect(status().isOk());
-
-        String createBody = "{\"resource\":\"" + resource + "\",\"action\":\"read\"}";
-        MvcResult createResult = mockMvc.perform(post("/api/v1/permissions")
-                        .header("Authorization", "Bearer " + token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(createBody))
-                .andExpect(status().isCreated())
+                .andExpect(status().isOk())
                 .andReturn();
-        JsonNode created = objectMapper.readTree(createResult.getResponse().getContentAsString());
-        String permissionId = created.at("/data/permissionId").asText();
+
+        JsonNode content = objectMapper.readTree(result.getResponse().getContentAsString()).at("/data/content");
+        assertThat(content.isArray()).isTrue();
+        assertThat(content.size()).isGreaterThan(0);
+    }
+
+    @Test
+    void getPermission_returnsMappedResponse_forASeededPermission() throws Exception {
+        String token = adminToken();
+
+        MvcResult listResult = mockMvc.perform(get("/api/v1/permissions?size=1")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andReturn();
+        String permissionId = objectMapper.readTree(listResult.getResponse().getContentAsString())
+                .at("/data/content/0/permissionId").asText();
 
         mockMvc.perform(get("/api/v1/permissions/" + permissionId).header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk());
-
-        String updateBody = "{\"resource\":\"" + resource + "\",\"action\":\"write\"}";
-        mockMvc.perform(put("/api/v1/permissions/" + permissionId)
-                        .header("Authorization", "Bearer " + token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(updateBody))
-                .andExpect(status().isOk());
-
-        mockMvc.perform(delete("/api/v1/permissions/" + permissionId).header("Authorization", "Bearer " + token))
-                .andExpect(status().isNoContent());
     }
 
     @Test

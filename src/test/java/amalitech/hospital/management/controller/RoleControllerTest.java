@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MvcResult;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -75,16 +76,9 @@ class RoleControllerTest extends AbstractControllerTest {
         JsonNode createdRole = objectMapper.readTree(createRoleResult.getResponse().getContentAsString());
         String roleId = createdRole.at("/data/roleId").asText();
 
-        String resource = "test-resource-" + uniqueDigits(9);
-        String createPermissionBody = "{\"resource\":\"" + resource + "\",\"action\":\"read\"}";
-        MvcResult createPermissionResult = mockMvc.perform(post("/api/v1/permissions")
-                        .header("Authorization", "Bearer " + token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(createPermissionBody))
-                .andExpect(status().isCreated())
-                .andReturn();
-        JsonNode createdPermission = objectMapper.readTree(createPermissionResult.getResponse().getContentAsString());
-        String permissionId = createdPermission.at("/data/permissionId").asText();
+        // Permissions are a fixed, system-managed catalog (see PermissionService's
+        // Javadoc) — grab one from the already-seeded set rather than creating one.
+        String permissionId = fetchASeededPermissionId(token);
 
         mockMvc.perform(get("/api/v1/roles/" + roleId + "/permissions")
                         .header("Authorization", "Bearer " + token))
@@ -101,5 +95,52 @@ class RoleControllerTest extends AbstractControllerTest {
         mockMvc.perform(delete("/api/v1/roles/" + roleId + "/permissions/" + permissionId)
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void createRole_grantsPermissionsInTheSameRequest() throws Exception {
+        String token = adminToken();
+        String roleName = "TestRole" + uniqueDigits(6);
+        String permissionId = fetchASeededPermissionId(token);
+
+        String createRoleBody = "{\"roleName\":\"" + roleName + "\",\"permissionIds\":[\"" + permissionId + "\"]}";
+        MvcResult createRoleResult = mockMvc.perform(post("/api/v1/roles")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createRoleBody))
+                .andExpect(status().isCreated())
+                .andReturn();
+        String roleId = objectMapper.readTree(createRoleResult.getResponse().getContentAsString())
+                .at("/data/roleId").asText();
+
+        MvcResult permissionsResult = mockMvc.perform(get("/api/v1/roles/" + roleId + "/permissions")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andReturn();
+        JsonNode grantedPermissions = objectMapper.readTree(permissionsResult.getResponse().getContentAsString()).at("/data");
+        assertThat(grantedPermissions).hasSize(1);
+        assertThat(grantedPermissions.get(0).at("/permissionId").asText()).isEqualTo(permissionId);
+    }
+
+    @Test
+    void createRole_returns404_whenAPermissionIdDoesNotExist() throws Exception {
+        String token = adminToken();
+        String roleName = "TestRole" + uniqueDigits(6);
+        String createRoleBody = "{\"roleName\":\"" + roleName + "\",\"permissionIds\":[\"nonexistent-permission-id\"]}";
+
+        mockMvc.perform(post("/api/v1/roles")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createRoleBody))
+                .andExpect(status().isNotFound());
+    }
+
+    private String fetchASeededPermissionId(String token) throws Exception {
+        MvcResult result = mockMvc.perform(get("/api/v1/permissions?size=1")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andReturn();
+        return objectMapper.readTree(result.getResponse().getContentAsString())
+                .at("/data/content/0/permissionId").asText();
     }
 }

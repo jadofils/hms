@@ -10,6 +10,9 @@ import amalitech.hospital.management.enums.Resource;
 import amalitech.hospital.management.service.RoleService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
+import io.swagger.v3.oas.annotations.media.ArraySchema;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -43,6 +46,10 @@ public class RoleController {
                     + "property is not validated ahead of time and currently surfaces as a "
                     + "400 rather than silently falling back.")
     @ApiResponse(responseCode = "200", description = "Roles returned")
+    @Parameter(name = "sort", in = ParameterIn.QUERY,
+            description = "Sort by property,direction. Possible properties: roleId, roleName, "
+                    + "description, createdAt, updatedAt.",
+            array = @ArraySchema(schema = @Schema(type = "string")), example = "roleName,asc")
     @RequirePermission(resource = Resource.ROLES, action = PermissionAction.READ)
     public ResponseEntity<ApiResult<PagedModel<RoleResponse>>> getRoles(Pageable pageable) {
         return ResponseEntity.ok(ApiResult.of("Roles retrieved", roleService.getRoles(pageable)));
@@ -59,8 +66,12 @@ public class RoleController {
     }
 
     @PostMapping
-    @Operation(summary = "Create a role")
+    @Operation(summary = "Create a role",
+            description = "Optionally grants a list of permissionIds to the new role in the same request, "
+                    + "instead of a separate POST /api/v1/roles/{roleId}/permissions/{permissionId} call per "
+                    + "permission afterward.")
     @ApiResponse(responseCode = "201", description = "Role created")
+    @ApiResponse(responseCode = "404", description = "A given permission id does not exist")
     @ApiResponse(responseCode = "409", description = "Role name already exists")
     @RequirePermission(resource = Resource.ROLES, action = PermissionAction.CREATE)
     public ResponseEntity<ApiResult<RoleResponse>> createRole(@Valid @RequestBody RoleRequest request) {

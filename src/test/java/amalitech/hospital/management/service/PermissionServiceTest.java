@@ -1,8 +1,6 @@
 package amalitech.hospital.management.service;
 
-import amalitech.hospital.management.dto.user.role.permission.PermissionRequest;
 import amalitech.hospital.management.dto.user.role.permission.PermissionResponse;
-import amalitech.hospital.management.exception.runtime.ConflictException;
 import amalitech.hospital.management.exception.runtime.NotFoundException;
 import amalitech.hospital.management.model.user.role.Permission;
 import amalitech.hospital.management.repository.user.role.PermissionRepository;
@@ -24,10 +22,13 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/**
+ * {@link PermissionService} is read-only — see its own Javadoc: permissions are a fixed,
+ * system-managed catalog seeded by {@code DataSeeder}, with no create/update/delete
+ * capability anywhere in the API.
+ */
 @ExtendWith(MockitoExtension.class)
 class PermissionServiceTest {
 
@@ -83,86 +84,5 @@ class PermissionServiceTest {
 
         assertThatThrownBy(() -> permissionService.getPermission("perm-1"))
                 .isInstanceOf(NotFoundException.class);
-    }
-
-    @Test
-    void createPermission_throwsConflict_whenResourceActionPairExists() {
-        when(permissionRepository.existsByResourceAndAction("patients", "read")).thenReturn(true);
-        PermissionRequest request = requestFor("patients", "read");
-
-        assertThatThrownBy(() -> permissionService.createPermission(request))
-                .isInstanceOf(ConflictException.class);
-        verify(permissionRepository, never()).save(any());
-    }
-
-    @Test
-    void createPermission_savesAndReturnsResponse() {
-        when(permissionRepository.existsByResourceAndAction("appointments", "create")).thenReturn(false);
-        when(permissionRepository.save(any(Permission.class))).thenAnswer(inv -> inv.getArgument(0));
-        PermissionRequest request = requestFor("appointments", "create");
-
-        PermissionResponse response = permissionService.createPermission(request);
-
-        assertThat(response.getResource()).isEqualTo("appointments");
-        assertThat(response.getAction()).isEqualTo("create");
-    }
-
-    @Test
-    void updatePermission_doesNotConflictCheck_whenUnchanged() {
-        when(permissionRepository.findById("perm-1")).thenReturn(Optional.of(existingPermission));
-        when(permissionRepository.save(any(Permission.class))).thenAnswer(inv -> inv.getArgument(0));
-        PermissionRequest request = requestFor("patients", "read");
-
-        permissionService.updatePermission("perm-1", request);
-
-        verify(permissionRepository, never()).existsByResourceAndAction(any(), any());
-    }
-
-    @Test
-    void updatePermission_throwsConflict_whenChangedToExistingPair() {
-        when(permissionRepository.findById("perm-1")).thenReturn(Optional.of(existingPermission));
-        when(permissionRepository.existsByResourceAndAction("patients", "delete")).thenReturn(true);
-        PermissionRequest request = requestFor("patients", "delete");
-
-        assertThatThrownBy(() -> permissionService.updatePermission("perm-1", request))
-                .isInstanceOf(ConflictException.class);
-        verify(permissionRepository, never()).save(any());
-    }
-
-    @Test
-    void updatePermission_updatesFields_whenChangedAndAvailable() {
-        when(permissionRepository.findById("perm-1")).thenReturn(Optional.of(existingPermission));
-        when(permissionRepository.existsByResourceAndAction("patients", "update")).thenReturn(false);
-        when(permissionRepository.save(any(Permission.class))).thenAnswer(inv -> inv.getArgument(0));
-        PermissionRequest request = requestFor("patients", "update");
-
-        PermissionResponse response = permissionService.updatePermission("perm-1", request);
-
-        assertThat(response.getAction()).isEqualTo("update");
-    }
-
-    @Test
-    void deletePermission_setsDeletedAt() {
-        when(permissionRepository.findById("perm-1")).thenReturn(Optional.of(existingPermission));
-        when(permissionRepository.save(any(Permission.class))).thenAnswer(inv -> inv.getArgument(0));
-
-        permissionService.deletePermission("perm-1");
-
-        assertThat(existingPermission.getDeletedAt()).isNotNull();
-    }
-
-    @Test
-    void deletePermission_throwsNotFound_whenAbsent() {
-        when(permissionRepository.findById("missing")).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> permissionService.deletePermission("missing"))
-                .isInstanceOf(NotFoundException.class);
-    }
-
-    private static PermissionRequest requestFor(String resource, String action) {
-        PermissionRequest request = new PermissionRequest();
-        request.setResource(resource);
-        request.setAction(action);
-        return request;
     }
 }
