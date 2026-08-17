@@ -8,54 +8,87 @@
 - Queries and mutations implemented
 - REST and GraphQL coexist without conflict
 
-## Status: not started — deferred by explicit request
+## How it was achieved
 
-This epic is intentionally the last piece of work left, deferred until every REST-facing
-story was closed out first.
+**A real bug fixed first, independent of any missing schema.** The dependency on the
+classpath is `spring-boot-starter-graphql` — real **Spring for GraphQL** — but
+`application.yaml`'s `graphql:` block used `graphql.tools.schema-location-pattern`/
+`graphql.servlet.*` keys, which belong to a *different* library
+(`graphql-java-kickstart`'s `graphql-spring-boot-starter`). Spring for GraphQL reads
+`spring.graphql.*` instead, so those keys were silently ignored regardless of whether
+schema files existed. Replaced with the real properties: `spring.graphql.path`,
+`spring.graphql.schema.locations: classpath:graphql/`, `spring.graphql.graphiql.enabled:
+true` (a free, zero-setup GraphiQL UI at `/graphiql` — Altair or any other GraphQL client
+needs none of this bundling, just this reachable, introspectable `/graphql` endpoint).
 
-## Current state (as of this pass)
+**Schema split into 9 files under `src/main/resources/graphql/`, one per real FK-
+dependency cluster** — mirroring this codebase's own `model`/`repository`/`service`/
+`controller` package boundaries, not an arbitrary split:
 
-The dependency and servlet mapping are already present but genuinely inert:
+| File | Types |
+|---|---|
+| `common.graphqls` | Scalars, root `Query`/`Mutation` stubs |
+| `user.graphqls` | `User`, `Role`, `Permission` |
+| `patient.graphqls` | `Patient` |
+| `doctor.graphqls` | `Doctor`, `Department`, `DoctorSchedule` |
+| `appointment.graphqls` | `Appointment` (the hub every clinical vertical hangs off) |
+| `pharmacy.graphqls` | `Medication`, `MedicalInventory`, `Prescription`, `PrescriptionItem` |
+| `lab.graphqls` | `LabOrder`, `LabResult` |
+| `finance.graphqls` | `Invoice` |
+| `notification.graphqls` | `Notification` |
 
-- `pom.xml` has the GraphQL Java Tools dependency.
-- `application.yaml` configures the *server* side:
-  ```yaml
-  graphql:
-    tools:
-      schema-location-pattern: "**/*.graphqls"
-    servlet:
-      mapping: /graphql
-      enabled: true
-      cors-enabled: true
-      exception-handlers-enabled: true
-  ```
-- `graphqlcodegen-maven-plugin` is configured to generate *client* code from schema
-  files under `src/main/resources/graphql-client/**/*.graphqls` — that directory doesn't
-  exist, so it's a no-op.
-- **No `.graphqls` schema file exists anywhere in the repo** — `graphql.tools.schema-
-  location-pattern` has nothing to match, so despite the dependency and servlet mapping
-  being configured, **no GraphQL endpoint is actually being served**. Hitting
-  `POST /graphql` today returns whatever the servlet's default no-schema behavior is, not
-  a working query/mutation surface.
+Every file is parsed and merged into **one** `TypeDefinitionRegistry` automatically by
+Spring for GraphQL's own auto-configuration — a cross-file type reference (e.g.
+`appointment.graphqls`' `patient: Patient` field) resolves the same way a Java import
+resolves a class from another package, no extra merge code needed. Join tables
+(`UserRole`, `RolePermission`) surface as mutations (`assignRole`, `grantPermission`, ...)
+rather than their own types, matching REST exactly (no `UserRoleController`/
+`RolePermissionController` exists either).
 
-## What closing this story will need
+**`config/graphql/GraphQlConfig`** registers the one thing the framework's schema-merge
+doesn't cover: custom scalars. `Date`/`BigDecimal` reuse `graphql-java-extended-scalars`
+(one new `pom.xml` dependency); `LocalDateTime`/`LocalTime` are hand-rolled
+(`LocalDateTimeScalar`/`LocalTimeScalar`) because that library's own `DateTime`/`Time`
+scalars only accept `OffsetDateTime`/`OffsetTime` — confirmed by inspecting their compiled
+`Coercing` — while every date-time field in this domain (`appointmentDate`, `createdAt`,
+`startTime`, ...) is a plain zone-less `LocalDateTime`/`LocalTime`.
 
-1. Author `.graphqls` schema file(s) under `src/main/resources/graphql/` covering the
-   "core entities" — at minimum `User`/`Role`/`Permission`/`Patient`/`Doctor`/
-   `Department`/`DoctorSchedule`/`Appointment`, matching the shapes their REST
-   `*Response` DTOs already expose.
-2. `@Component`-annotated GraphQL resolvers (query/mutation root resolvers) that
-   delegate to the *same* existing services (`PatientService`, `DoctorService`, etc.) —
-   REST and GraphQL should share one service layer, not duplicate business logic.
-3. Verify REST and GraphQL genuinely coexist: both `/api/v1/**` and `/graphql` reachable
-   in the same running app, exercised by both Swagger UI and a GraphQL client
-   (e.g. GraphiQL/Postman) without one breaking the other.
-4. The README's own Deliverables table ties a "REST vs GraphQL" performance report to
-   this epic (see Story 2.2's doc) — write that once both surfaces exist to compare.
+**`resolvers/` package** (parallel to `controller/`) — one `@Controller` GraphQL resolver
+per entity that already has a REST controller (16 total), each delegating to the exact
+same `*Service` its REST counterpart calls, so business logic is never duplicated between
+the two API surfaces. Nested object fields (`Appointment.patient`, `Prescription.items`,
+`MedicalInventory.medication`, ...) are resolved lazily via `@SchemaMapping` methods that
+call the owning domain's own service — e.g. `AppointmentResolver.patient` calls
+`PatientService.getPatient`, giving GraphQL callers the real related object instead of
+REST's pre-flattened `patientName` string.
 
-## Where in the codebase (current, inert state)
+**`@RequirePermission`/`AuthorizationAspect` do not apply to GraphQL** — that mechanism is
+scoped to `@RestController` methods; GraphQL resolvers aren't reached through the same
+handler-mapping pointcut. Authorization for GraphQL is intentionally out of scope for this
+pass (`SecurityConfig` already permits all requests — see its own Javadoc) and documented
+here so it isn't silently assumed covered.
 
-- `pom.xml` — GraphQL dependency/codegen plugin config.
-- `src/main/resources/application.yaml` — `graphql:` block.
-- `src/main/resources/graphql/`, `src/main/resources/graphql-client/` — empty
-  directories referenced by config, holding no schema files yet.
+## Where in the codebase
+
+- `pom.xml` — `graphql-java-extended-scalars` dependency.
+- `src/main/resources/application.yaml` — corrected `spring.graphql.*` block.
+- `src/main/resources/graphql/*.graphqls` — the 9 schema files.
+- `config/graphql/GraphQlConfig.java`, `LocalDateTimeScalar.java`, `LocalTimeScalar.java`.
+- `resolvers/*.java` — 16 resolver classes.
+- `src/test/java/.../resolvers/*ResolverTest.java` — one `@GraphQlTest` slice test per
+  resolver (57 tests), mocking the underlying service the same way this project's other
+  layer tests do.
+
+## Verification
+
+```bash
+./mvnw clean verify
+```
+Full suite: 751 tests, 0 failures. Manually confirmed end-to-end:
+- `POST /graphql` with an introspection query (`{ __schema { types { name } } }`) returns
+  all 16 domain types plus the 4 custom scalars merged from all 9 schema files.
+- `http://localhost:8080/graphiql` loads (200 after its redirect).
+- A real `{ patients(page: 0, size: 5) { patientId firstName } }` query returns actual
+  rows from the same Postgres database `GET /api/v1/patients` reads — confirming REST and
+  GraphQL coexist without conflict, both reachable in the same running app against the
+  same service/data layer.
