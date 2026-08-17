@@ -1,0 +1,53 @@
+# LabOrder/LabResult cluster — LabResult->LabOrder (1:1), LabOrder->Appointment+Doctor.
+
+type LabOrder {
+    labOrderId: ID!
+    appointment: Appointment!
+    doctor: Doctor!
+    testName: String!
+    status: String!
+    orderedAt: LocalDateTime!
+    result: LabResult
+}
+
+"""The single result for a LabOrder — a genuine one-to-one, so there is no list query."""
+type LabResult {
+    labResultId: ID!
+    labOrderId: ID!
+    resultValue: String
+    unit: String
+    referenceRange: String
+    isAbnormal: Boolean!
+    completedAt: LocalDateTime
+}
+
+input LabOrderInput {
+    appointmentId: ID!
+    doctorId: ID!
+    testName: String!
+    status: String
+}
+
+input LabResultInput {
+    resultValue: String
+    unit: String
+    referenceRange: String
+    isAbnormal: Boolean
+    completedAt: LocalDateTime
+}
+
+extend type Query {
+    labOrders(page: Int! = 0, size: Int! = 20): [LabOrder!]!
+    labOrder(labOrderId: ID!): LabOrder
+    labResult(labOrderId: ID!): LabResult
+}
+
+extend type Mutation {
+    createLabOrder(input: LabOrderInput!): LabOrder!
+    updateLabOrder(labOrderId: ID!, input: LabOrderInput!): LabOrder!
+    deleteLabOrder(labOrderId: ID!): Boolean!
+
+    createLabResult(labOrderId: ID!, input: LabResultInput!): LabResult!
+    updateLabResult(labOrderId: ID!, input: LabResultInput!): LabResult!
+    deleteLabResult(labOrderId: ID!): Boolean!
+}
