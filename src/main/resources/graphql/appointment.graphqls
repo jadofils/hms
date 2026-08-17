@@ -1,0 +1,31 @@
+# Appointment — the hub every clinical vertical hangs off (Prescription/LabOrder/Invoice
+# all reference it). Split from patient.graphqls the same way AppointmentService/
+# AppointmentController are already separate from PatientService/PatientController.
+
+type Appointment {
+    appointmentId: ID!
+    patient: Patient!
+    doctor: Doctor!
+    appointmentDate: LocalDateTime!
+    status: String!
+    reason: String
+}
+
+input AppointmentInput {
+    patientId: ID!
+    doctorId: ID!
+    appointmentDate: LocalDateTime!
+    reason: String
+    status: String
+}
+
+extend type Query {
+    appointments(page: Int! = 0, size: Int! = 20, status: String): [Appointment!]!
+    appointment(appointmentId: ID!): Appointment
+}
+
+extend type Mutation {
+    createAppointment(input: AppointmentInput!): Appointment!
+    updateAppointment(appointmentId: ID!, input: AppointmentInput!): Appointment!
+    deleteAppointment(appointmentId: ID!): Boolean!
+}
