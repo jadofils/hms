@@ -30,7 +30,8 @@ class AuthControllerTest extends AbstractControllerTest {
     @Test
     void register_createsAccount() throws Exception {
         String username = "authreg" + uniqueDigits(6);
-        String body = "{\"username\":\"" + username + "\",\"password\":\"TestPass1!\"}";
+        String body = "{\"username\":\"" + username + "\",\"password\":\"TestPass1!\",\"email\":\""
+                + username + "@example.com\"}";
 
         mockMvc.perform(post("/api/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -66,8 +67,25 @@ class AuthControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    void forgotPassword_alwaysReturns200() throws Exception {
+    void forgotPassword_returns404_whenEmailNotOnFile() throws Exception {
         String body = "{\"email\":\"nonexistent" + uniqueDigits(6) + "@example.com\"}";
+        mockMvc.perform(post("/api/v1/auth/forgot-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void forgotPassword_returns200_whenEmailOnFile() throws Exception {
+        String username = "authforgot" + uniqueDigits(6);
+        String email = "authforgot" + uniqueDigits(6) + "@example.com";
+        String registerBody = "{\"username\":\"" + username + "\",\"password\":\"TestPass1!\",\"email\":\"" + email + "\"}";
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(registerBody))
+                .andExpect(status().isCreated());
+
+        String body = "{\"email\":\"" + email + "\"}";
         mockMvc.perform(post("/api/v1/auth/forgot-password")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
@@ -146,11 +164,9 @@ class AuthControllerTest extends AbstractControllerTest {
 
     @Test
     void resetPassword_succeeds_withValidToken() throws Exception {
-        // No email on this account, so AuthService.resetPassword's null-guard skips the
-        // passwordChanged email send — this test only needs to reach the 200 response,
-        // not exercise a real SMTP send.
         String username = "authrst" + uniqueDigits(6);
-        String registerBody = "{\"username\":\"" + username + "\",\"password\":\"TestPass1!\"}";
+        String registerBody = "{\"username\":\"" + username + "\",\"password\":\"TestPass1!\",\"email\":\""
+                + username + "@example.com\"}";
         MvcResult registerResult = mockMvc.perform(post("/api/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(registerBody))
@@ -223,7 +239,8 @@ class AuthControllerTest extends AbstractControllerTest {
     // ── helpers ──────────────────────────────────────────────────────────────
 
     private void registerUser(String username, String password) throws Exception {
-        String body = "{\"username\":\"" + username + "\",\"password\":\"" + password + "\"}";
+        String body = "{\"username\":\"" + username + "\",\"password\":\"" + password
+                + "\",\"email\":\"" + username + "@example.com\"}";
         mockMvc.perform(post("/api/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
@@ -231,14 +248,19 @@ class AuthControllerTest extends AbstractControllerTest {
     }
 
     /**
-     * Registers a fresh throwaway user and assigns it a fresh throwaway role — a brand
-     * new registration has no role yet (see {@code UserService.createUser}'s Javadoc)
-     * and can't log in until one is assigned, exactly like a real admin would have to do.
+     * Registers a fresh throwaway user, verifies its email (email is mandatory now, so
+     * every self-registration is gated behind verification — see {@code AuthService.login}
+     * — seeding a fresh Redis key here rather than reading the real token off a sent
+     * email, same shortcut {@code register_withEmail_blocksLoginUntilVerified_...} above
+     * uses), and assigns it a fresh throwaway role — a brand new registration has no role
+     * yet (see {@code UserService.createUser}'s Javadoc) and can't log in until one is
+     * assigned, exactly like a real admin would have to do.
      */
     private String registerAndLogin(String username, String password) throws Exception {
         String admin = adminToken();
 
-        String registerBody = "{\"username\":\"" + username + "\",\"password\":\"" + password + "\"}";
+        String registerBody = "{\"username\":\"" + username + "\",\"password\":\"" + password
+                + "\",\"email\":\"" + username + "@example.com\"}";
         MvcResult registerResult = mockMvc.perform(post("/api/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(registerBody))
@@ -246,6 +268,11 @@ class AuthControllerTest extends AbstractControllerTest {
                 .andReturn();
         JsonNode registered = objectMapper.readTree(registerResult.getResponse().getContentAsString());
         String userId = registered.at("/data/userId").asText();
+
+        String verifyToken = "test-verify-token-" + uniqueDigits(12);
+        redisTemplate.opsForValue().set("email-verify:" + verifyToken, userId, Duration.ofHours(24));
+        mockMvc.perform(get("/api/v1/auth/verify-email").param("token", verifyToken))
+                .andExpect(status().isOk());
 
         String roleBody = "{\"roleName\":\"TestRole" + uniqueDigits(9) + "\"}";
         MvcResult roleResult = mockMvc.perform(post("/api/v1/roles")

@@ -87,12 +87,14 @@ public class AuthController {
 
     @PostMapping("/forgot-password")
     @Operation(summary = "Request a password reset token by email",
-            description = "Always returns 200 whether or not the email exists, to avoid account enumeration. "
-                    + "The token is emailed to the address, not returned in this response.")
-    @ApiResponse(responseCode = "200", description = "If that email exists, a reset token was sent")
+            description = "Checks the email against the database first and reports outright if it isn't "
+                    + "on file, rather than the more common anti-enumeration pattern of a generic response "
+                    + "either way. The token itself is emailed to the address, not returned in this response.")
+    @ApiResponse(responseCode = "200", description = "A reset token was sent to that email")
+    @ApiResponse(responseCode = "404", description = "No account found with that email")
     public ResponseEntity<ApiResult<Void>> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
         authService.forgotPassword(request);
-        return ResponseEntity.ok(ApiResult.of("If that email exists, a reset token was sent", null));
+        return ResponseEntity.ok(ApiResult.of("A reset token was sent to that email", null));
     }
 
     @PostMapping("/reset-password")
@@ -120,7 +122,10 @@ public class AuthController {
     }
 
     @GetMapping("/me")
-    @Operation(summary = "Identity carried by the current request's Bearer token, if any")
+    @Operation(summary = "The current caller's live profile",
+            description = "username/email/isActive are a live, cache-backed lookup (see UserService.getUser) "
+                    + "so they reflect a profile update (PUT /api/v1/users/{userId}) immediately — only "
+                    + "`role` is the claim embedded in this request's own Bearer token at login time.")
     @ApiResponse(responseCode = "200", description = "Token present and valid")
     @ApiResponse(responseCode = "401", description = "No token, or token invalid/expired")
     public ResponseEntity<ApiResult<MeResponse>> me(Authentication authentication) {
@@ -128,7 +133,8 @@ public class AuthController {
                 || !(authentication.getPrincipal() instanceof AuthenticatedUser(String userId, String username, String role))) {
             throw new UnauthorizedException("No token provided");
         }
+        UserResponse user = userService.getUser(userId);
         return ResponseEntity.ok(ApiResult.of("Current session identity",
-                new MeResponse(userId, username, role)));
+                new MeResponse(user.getUserId(), user.getUsername(), user.getEmail(), user.getIsActive(), role)));
     }
 }
