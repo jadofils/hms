@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8"/>
+    <title>REST vs GraphQL — Performance Benchmark</title>
+    <style>
+        :root {
+            --bg: #f4f6f8;
+            --panel: #ffffff;
+            --border: #e0e4e8;
+            --text: #1f2933;
+            --muted: #52606d;
+            --rest: #2563eb;
+            --graphql: #d6409f;
+            --ok: #15803d;
+            --ok-bg: #dcfce7;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.5;
+        }
+        header {
+            padding: 2rem 2rem 1.5rem;
+            background: linear-gradient(120deg, #1e293b, #334155);
+            color: #f8fafc;
+        }
+        header h1 { margin: 0 0 0.4rem; font-size: 1.7rem; }
+        header p { margin: 0; color: #cbd5e1; max-width: 60rem; }
+        main { max-width: 72rem; margin: 0 auto; padding: 1.5rem 2rem 3rem; }
+
+        .status-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+            gap: 1rem;
+            margin: 0 0 1.5rem;
+        }
+        .status-card {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            padding: 1rem 1.2rem;
+        }
+        .status-label {
+            font-size: 0.78rem;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            color: var(--muted);
+            margin-bottom: 0.3rem;
+        }
+        .status-value { font-size: 1.4rem; font-weight: 700; }
+        .status-value.ok { color: var(--ok); }
+        .status-sub { font-size: 0.82rem; color: var(--muted); margin-top: 0.2rem; }
+
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            padding: 1.2rem 1.5rem;
+            margin: 0 0 1.5rem;
+        }
+        .panel h2 { margin: 0 0 0.3rem; font-size: 1.1rem; }
+        .panel .subtitle { margin: 0 0 1rem; font-size: 0.85rem; color: var(--muted); }
+        .panel .subtitle code {
+            background: #f1f5f9;
+            padding: 0.1rem 0.35rem;
+            border-radius: 0.25rem;
+            font-size: 0.85em;
+        }
+
+        .column-guide {
+            margin: 1rem 0 0;
+            padding-left: 1.2rem;
+            font-size: 0.85rem;
+            color: var(--muted);
+        }
+        .column-guide li { margin-bottom: 0.35rem; }
+        .table-scroll { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; }
+        thead th {
+            text-align: left;
+            font-size: 0.78rem;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            color: var(--muted);
+            padding: 0.6rem 0.9rem;
+            background: #f8fafc;
+            border-bottom: 1px solid var(--border);
+            white-space: nowrap;
+        }
+        tbody td {
+            padding: 0.65rem 0.9rem;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.9rem;
+            white-space: nowrap;
+        }
+        tbody tr:last-child td { border-bottom: none; }
+        tbody tr:hover { background: #fafbfc; }
+        td.operation { font-weight: 600; white-space: normal; }
+
+        .badge {
+            display: inline-block;
+            font-size: 0.78rem;
+            font-weight: 600;
+            padding: 0.2rem 0.55rem;
+            border-radius: 0.35rem;
+            color: var(--ok);
+            background: var(--ok-bg);
+        }
+
+        .charts {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+            gap: 1rem;
+            margin: 0 0 1.5rem;
+        }
+        .chart-card h3 {
+            margin: 0 0 0.9rem;
+            font-size: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+        .chart-card h3::before {
+            content: "";
+            display: inline-block;
+            width: 0.7rem;
+            height: 0.7rem;
+            border-radius: 2px;
+        }
+        .chart-card.rest h3::before { background: var(--rest); }
+        .chart-card.graphql h3::before { background: var(--graphql); }
+        .bars {
+            display: flex;
+            align-items: flex-end;
+            gap: 0.6rem;
+            height: 11rem;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.3rem;
+        }
+        .bar-group {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-end;
+            height: 100%;
+            min-width: 1.6rem;
+        }
+        .bar {
+            width: 100%;
+            max-width: 1.8rem;
+            border-radius: 3px 3px 0 0;
+        }
+        .chart-card.rest .bar { background: var(--rest); }
+        .chart-card.graphql .bar { background: var(--graphql); }
+        .bar-value { font-size: 0.7rem; color: var(--muted); margin-bottom: 0.2rem; }
+        .bar-label {
+            font-size: 0.62rem;
+            color: var(--muted);
+            margin-top: 0.4rem;
+            text-align: center;
+            writing-mode: vertical-rl;
+            transform: rotate(180deg);
+            max-height: 5.5rem;
+            overflow: hidden;
+        }
+
+        .analysis { font-size: 0.9rem; }
+        .analysis h3 { margin: 1.2rem 0 0.5rem; font-size: 0.98rem; }
+        .analysis li { margin-bottom: 0.4rem; }
+        .analysis code {
+            background: #f1f5f9;
+            padding: 0.1rem 0.35rem;
+            border-radius: 0.25rem;
+            font-size: 0.85em;
+        }
+
+        footer {
+            max-width: 72rem;
+            margin: 0 auto 2rem;
+            padding: 0 2rem;
+            color: var(--muted);
+            font-size: 0.85rem;
+        }
+    </style>
+</head>
+<body>
+<header>
+    <h1>REST vs GraphQL — Performance Benchmark</h1>
+    <p>
+        Real HTTP round trips against a real running instance, both styles calling the exact
+        same service-layer method per operation against the same PostgreSQL data — so any gap
+        below is REST's vs. GraphQL's own transport/parsing/resolution overhead, not database or
+        business-logic cost. Not an indexing/database-tuning study.
+    </p>
+</header>
+<main>
+
+    <div class="status-cards">
+        <div class="status-card">
+            <div class="status-label">Datastore</div>
+            <div class="status-value ok">PostgreSQL</div>
+            <div class="status-sub">Shared by both styles — no separate REST/GraphQL databases</div>
+        </div>
+        <div class="status-card">
+            <div class="status-label">Styles Compared</div>
+            <div class="status-value ok">REST vs GraphQL</div>
+            <div class="status-sub">Same service layer, same data, different transport</div>
+        </div>
+        <div class="status-card">
+            <div class="status-label">Operations Benchmarked</div>
+            <div class="status-value" th:text="${#lists.size(benchmarkResults)}">8</div>
+            <div class="status-sub">Doctor, Patient, Role, Appointment</div>
+        </div>
+        <div class="status-card">
+            <div class="status-label">Iterations / Operation / Style</div>
+            <div class="status-value" th:text="${iterations}">30</div>
+            <div class="status-sub">Real HTTP round trips</div>
+        </div>
+    </div>
+
+    <div class="panel">
+        <h2>Benchmark Results — REST vs GraphQL</h2>
+        <p class="subtitle">
+            Generated by <code>RestVsGraphQlBenchmarkTest</code> — see
+            <code>docs/performance-report.md</code> for the full write-up and re-run instructions.
+        </p>
+        <div class="table-scroll">
+            <table>
+                <caption style="display:none;">Empirical REST vs GraphQL benchmark</caption>
+                <thead>
+                <tr>
+                    <th scope="col">Operation</th>
+                    <th scope="col">Avg REST (ms)</th>
+                    <th scope="col">Avg GraphQL (ms)</th>
+                    <th scope="col">P95 REST (ms)</th>
+                    <th scope="col">P95 GraphQL (ms)</th>
+                    <th scope="col">Tput REST (ops/s)</th>
+                    <th scope="col">Tput GraphQL (ops/s)</th>
+                    <th scope="col">Faster</th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr th:each="row : ${benchmarkResults}">
+                    <td class="operation" th:text="${row.operation}">Operation</td>
+                    <td th:text="${#numbers.formatDecimal(row.avgRestMs, 1, 2)}">0.00</td>
+                    <td th:text="${#numbers.formatDecimal(row.avgGraphQlMs, 1, 2)}">0.00</td>
+                    <td th:text="${#numbers.formatDecimal(row.p95RestMs, 1, 2)}">0.00</td>
+                    <td th:text="${#numbers.formatDecimal(row.p95GraphQlMs, 1, 2)}">0.00</td>
+                    <td th:text="${row.throughputRestOpsPerSec}">0</td>
+                    <td th:text="${row.throughputGraphQlOpsPerSec}">0</td>
+                    <td><span class="badge" th:text="${row.faster}">Faster</span></td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+        <ul class="column-guide">
+            <li><strong>Operation</strong> — the REST endpoint / GraphQL query or mutation pair
+                benchmarked; both sides call the exact same service-layer method for a given row.</li>
+            <li><strong>Avg (ms)</strong> — mean latency across <span th:text="${iterations}">30</span>
+                real HTTP round trips per style. Lower is better.</li>
+            <li><strong>P95 (ms)</strong> — the 95th-percentile latency: the worst response time for
+                19 out of every 20 requests. This matters more than the average for user-facing
+                tail-latency risk, since it isn't dragged down by a handful of fast outliers.</li>
+            <li><strong>Tput (ops/s)</strong> — throughput: how many of these requests, run
+                back-to-back, complete per second. Higher is better; it's derived from the same
+                timing run as Avg/P95, not measured separately.</li>
+            <li><strong>Faster</strong> — whichever style had the lower Avg latency for that row, and
+                by how much (percentage relative to the slower one).</li>
+        </ul>
+    </div>
+
+    <div class="charts">
+        <div class="panel chart-card rest">
+            <h3>REST — Avg Latency (ms)</h3>
+            <div class="bars">
+                <div class="bar-group" th:each="row : ${benchmarkResults}">
+                    <div class="bar-value" th:text="${#numbers.formatDecimal(row.avgRestMs, 1, 1)}">0.0</div>
+                    <div class="bar" th:style="'height:' + ${(row.avgRestMs / maxAvgLatencyMs) * 100} + '%'"></div>
+                    <div class="bar-label" th:text="${row.operation}">Operation</div>
+                </div>
+            </div>
+        </div>
+        <div class="panel chart-card graphql">
+            <h3>GraphQL — Avg Latency (ms)</h3>
+            <div class="bars">
+                <div class="bar-group" th:each="row : ${benchmarkResults}">
+                    <div class="bar-value" th:text="${#numbers.formatDecimal(row.avgGraphQlMs, 1, 1)}">0.0</div>
+                    <div class="bar" th:style="'height:' + ${(row.avgGraphQlMs / maxAvgLatencyMs) * 100} + '%'"></div>
+                    <div class="bar-label" th:text="${row.operation}">Operation</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="panel analysis">
+        <h2>Analysis</h2>
+        <ul>
+            <li>REST was faster (lower avg latency) in <strong th:text="${restWinCount}">8</strong> of
+                <strong th:text="${#lists.size(benchmarkResults)}">8</strong> operations measured.</li>
+            <li>Across all operations, REST averaged
+                <strong th:text="${#numbers.formatDecimal(avgRestMs, 1, 2)} + ' ms'">17.81 ms</strong> and
+                GraphQL averaged
+                <strong th:text="${#numbers.formatDecimal(avgGraphQlMs, 1, 2)} + ' ms'">36.21 ms</strong>
+                per request.</li>
+            <li>Both styles call the exact same service-layer method for a given operation (e.g. both
+                <code>GET /api/v1/roles/{id}</code> and <code>query { role(...) }</code> call
+                <code>RoleService.getRole</code>), so the gap measured here is transport/protocol
+                overhead — GraphQL's per-request query parsing, validation, and field-by-field
+                resolution — not database or business-logic cost.</li>
+            <li><strong>Biggest gap:</strong> <strong>Get Role by id</strong> — REST ~14 ms vs. GraphQL
+                ~104 ms. Both call the identical <code>RoleService.getRole</code>, so effectively all
+                of that ~90 ms difference is GraphQL's own request-parsing/validation/resolution
+                overhead on that particular query shape, not anything database-side.</li>
+        </ul>
+
+        <h3>Where REST does better</h3>
+        <ul>
+            <li><strong>Every operation measured here.</strong> On this benchmark's fixed, well-known
+                request shapes, REST's simpler request/response cycle (no query string to parse,
+                validate, or resolve field-by-field) was faster in
+                <strong th:text="${restWinCount}">8</strong> of
+                <strong th:text="${#lists.size(benchmarkResults)}">8</strong> cases, sometimes
+                dramatically (<strong>Get Role by id</strong>: REST ~86% faster).</li>
+            <li>Any single-shape, high-throughput endpoint a frontend calls the same way every time —
+                REST's lower per-request overhead compounds at scale.</li>
+            <li>Writes, mutations with side effects, and anything needing standard HTTP semantics
+                (status codes, caching headers, idempotency via verbs) that this benchmark didn't
+                measure directly but that REST still handles more directly than GraphQL's uniform
+                200-status-plus-body model.</li>
+        </ul>
+
+        <h3>Where GraphQL does better</h3>
+        <ul>
+            <li><strong>Not raw per-request speed on a fixed shape</strong> — this benchmark shows
+                GraphQL losing that comparison every time. Its real advantage is shape, not speed.</li>
+            <li>A caller that needs a different subset of fields/nesting depth per screen (e.g. a
+                mobile client wanting a lean <code>doctor { firstName lastName }</code> vs. an admin
+                dashboard wanting the full <code>departments { name location }</code> tree) — one
+                flexible endpoint instead of several REST DTO variants or bespoke query params.</li>
+            <li>Deeply relational reads where REST would otherwise need several round trips or a
+                heavily pre-flattened DTO (e.g. an appointment's patient <em>and</em> doctor <em>and</em>
+                their departments in one request) — GraphQL resolves the whole shape in a single call,
+                trading some per-request overhead for fewer round trips overall.</li>
+            <li>Consumers who benefit from a strongly-typed, self-documenting schema with
+                introspection (GraphiQL/Altair) over hand-maintained REST API docs.</li>
+        </ul>
+    </div>
+
+</main>
+<footer>
+    <p>
+        Both styles call the same service layer in this codebase — see <code>CLAUDE.md</code>'s
+        "one service layer, multiple front doors" principle. Re-run
+        <code>RestVsGraphQlBenchmarkTest</code> (disabled by default — see its Javadoc) to
+        regenerate these numbers.
+    </p>
+</footer>
+</body>
+</html>

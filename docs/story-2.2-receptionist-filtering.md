@@ -81,10 +81,11 @@ at the database is to avoid loading more rows into memory than the current page 
 `@ApplyAlgorithm` is for the opposite situation (a collection you've already loaded and
 now need to sort/search without another round-trip).
 
-**"Performance documented and analyzed" — intentionally not written yet.** The README's
-own Deliverables table names this "REST vs GraphQL analysis" — it can't be written
-before GraphQL (Epic 4) exists to compare against. Tracked as deferred until that epic is
-picked up.
+**"Performance documented and analyzed" — see [`performance-report.md`](performance-report.md).**
+The README's own Deliverables table names this "REST vs GraphQL analysis" — it couldn't
+be written before GraphQL (Epic 4) existed to compare against; now that it does, both
+styles are benchmarked head-to-head (real HTTP round trips, same service layer, same
+PostgreSQL data) via `RestVsGraphQlBenchmarkTest`.
 
 ## Where in the codebase
 
