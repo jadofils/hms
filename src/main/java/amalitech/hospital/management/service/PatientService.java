@@ -1,15 +1,39 @@
 package amalitech.hospital.management.service;
 
 import amalitech.hospital.management.annotation.FindUserData;
+import amalitech.hospital.management.dto.finance.InvoiceResponse;
+import amalitech.hospital.management.dto.patient.AppointmentResponse;
+import amalitech.hospital.management.dto.patient.MedicalRecordResponse;
+import amalitech.hospital.management.dto.patient.PatientAllergyResponse;
+import amalitech.hospital.management.dto.patient.PatientFeedbackResponse;
+import amalitech.hospital.management.dto.patient.PatientNoteResponse;
 import amalitech.hospital.management.dto.patient.PatientRequest;
 import amalitech.hospital.management.dto.patient.PatientResponse;
+import amalitech.hospital.management.dto.patient.ReferralResponse;
+import amalitech.hospital.management.dto.patient.VitalSignResponse;
 import amalitech.hospital.management.enums.Gender;
 import amalitech.hospital.management.enums.PatientStatus;
 import amalitech.hospital.management.exception.runtime.BadRequestException;
 import amalitech.hospital.management.exception.runtime.ConflictException;
 import amalitech.hospital.management.exception.runtime.NotFoundException;
+import amalitech.hospital.management.model.finance.Invoice;
+import amalitech.hospital.management.model.patient.Appointment;
+import amalitech.hospital.management.model.patient.MedicalRecord;
 import amalitech.hospital.management.model.patient.Patient;
+import amalitech.hospital.management.model.patient.PatientAllergy;
+import amalitech.hospital.management.model.patient.PatientFeedback;
+import amalitech.hospital.management.model.patient.PatientNote;
+import amalitech.hospital.management.model.patient.Referral;
+import amalitech.hospital.management.model.patient.VitalSign;
+import amalitech.hospital.management.repository.finance.InvoiceRepository;
+import amalitech.hospital.management.repository.patient.AppointmentRepository;
+import amalitech.hospital.management.repository.patient.MedicalRecordRepository;
+import amalitech.hospital.management.repository.patient.PatientAllergyRepository;
+import amalitech.hospital.management.repository.patient.PatientFeedbackRepository;
+import amalitech.hospital.management.repository.patient.PatientNoteRepository;
 import amalitech.hospital.management.repository.patient.PatientRepository;
+import amalitech.hospital.management.repository.patient.ReferralRepository;
+import amalitech.hospital.management.repository.patient.VitalSignRepository;
 import amalitech.hospital.management.utils.filters.PagedRawResult;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.CacheEvict;
@@ -39,6 +63,19 @@ import java.util.List;
 public class PatientService {
 
     private final PatientRepository patientRepository;
+    // Read directly at the repository level (not through AppointmentService/
+    // InvoiceService) — the same "reach into a repository, not another service" style
+    // DoctorService already uses for DepartmentRepository, and it avoids any risk of a
+    // circular service dependency for what's a purely additive, read-only eager load
+    // (see getPatient's Javadoc).
+    private final AppointmentRepository appointmentRepository;
+    private final InvoiceRepository invoiceRepository;
+    private final PatientAllergyRepository patientAllergyRepository;
+    private final PatientFeedbackRepository patientFeedbackRepository;
+    private final PatientNoteRepository patientNoteRepository;
+    private final MedicalRecordRepository medicalRecordRepository;
+    private final VitalSignRepository vitalSignRepository;
+    private final ReferralRepository referralRepository;
 
     /**
      * Self-injected proxy reference, used only to call this class's own
@@ -106,9 +143,34 @@ public class PatientService {
         throw new IllegalStateException("FindUserDataAspect did not intercept this call");
     }
 
+    /**
+     * Eager-loads every piece of data actually linked to this patient — see
+     * {@code PatientResponse}'s Javadoc. Not populated by {@link #getPatients} or by
+     * create/update, same convention as {@code DoctorService.getDoctor}/
+     * {@code UserService.getUser}/{@code RoleService.getRole}.
+     */
     @Cacheable(value = "patients", key = "#patientId")
     public PatientResponse getPatient(String patientId) {
-        return toResponse(findPatientOrThrow(patientId));
+        Patient patient = findPatientOrThrow(patientId);
+        PatientResponse response = toResponse(patient);
+        response.setAppointments(appointmentRepository.findByPatient_PatientIdAndDeletedAtIsNull(patientId).stream()
+                .map(this::toAppointmentResponse).toList());
+        response.setInvoices(invoiceRepository.findByPatient_PatientIdAndDeletedAtIsNull(patientId).stream()
+                .map(this::toInvoiceResponse).toList());
+        response.setAllergies(patientAllergyRepository.findByPatient_PatientIdAndDeletedAtIsNull(patientId).stream()
+                .map(this::toAllergyResponse).toList());
+        response.setFeedback(patientFeedbackRepository.findByPatient_PatientIdAndDeletedAtIsNull(patientId).stream()
+                .map(this::toFeedbackResponse).toList());
+        response.setNotes(patientNoteRepository.findByPatient_PatientIdAndDeletedAtIsNull(patientId).stream()
+                .map(this::toNoteResponse).toList());
+        response.setMedicalRecords(medicalRecordRepository
+                .findByAppointment_Patient_PatientIdAndDeletedAtIsNull(patientId).stream()
+                .map(this::toMedicalRecordResponse).toList());
+        response.setVitalSigns(vitalSignRepository.findByAppointment_Patient_PatientIdAndDeletedAtIsNull(patientId)
+                .stream().map(this::toVitalSignResponse).toList());
+        response.setReferrals(referralRepository.findByAppointment_Patient_PatientIdAndDeletedAtIsNull(patientId)
+                .stream().map(this::toReferralResponse).toList());
+        return response;
     }
 
     @Transactional
@@ -216,6 +278,113 @@ public class PatientService {
         response.setEmail(patient.getEmail());
         response.setAddress(patient.getAddress());
         response.setStatus(patient.getStatus().getDbValue());
+        return response;
+    }
+
+    // ── Eager-loaded related data (getPatient only) ─────────────────────────────
+    // Mirrors AppointmentService/InvoiceService's own flattening style — id + a
+    // "firstName lastName" scalar for each related person, not a nested response
+    // object, matching how those two services already represent the same relationships.
+
+    private AppointmentResponse toAppointmentResponse(Appointment appointment) {
+        AppointmentResponse response = new AppointmentResponse();
+        response.setAppointmentId(appointment.getAppointmentId());
+        response.setPatientId(appointment.getPatient().getPatientId());
+        response.setPatientName(appointment.getPatient().getFirstName() + " " + appointment.getPatient().getLastName());
+        response.setDoctorId(appointment.getDoctor().getDoctorId());
+        response.setDoctorName(appointment.getDoctor().getFirstName() + " " + appointment.getDoctor().getLastName());
+        response.setAppointmentDate(appointment.getAppointmentDate());
+        response.setStatus(appointment.getStatus().getDbValue());
+        response.setReason(appointment.getReason());
+        return response;
+    }
+
+    private InvoiceResponse toInvoiceResponse(Invoice invoice) {
+        InvoiceResponse response = new InvoiceResponse();
+        response.setInvoiceId(invoice.getInvoiceId());
+        response.setAppointmentId(invoice.getAppointment().getAppointmentId());
+        response.setPatientId(invoice.getPatient().getPatientId());
+        response.setPatientName(invoice.getPatient().getFirstName() + " " + invoice.getPatient().getLastName());
+        response.setTotalAmount(invoice.getTotalAmount());
+        response.setPaymentStatus(invoice.getPaymentStatus().getDbValue());
+        response.setIssuedAt(invoice.getIssuedAt());
+        return response;
+    }
+
+    private PatientAllergyResponse toAllergyResponse(PatientAllergy allergy) {
+        PatientAllergyResponse response = new PatientAllergyResponse();
+        response.setAllergyId(allergy.getAllergyId());
+        response.setAllergen(allergy.getAllergen());
+        response.setReaction(allergy.getReaction());
+        response.setSeverity(allergy.getSeverity());
+        response.setCreatedAt(allergy.getCreatedAt());
+        return response;
+    }
+
+    private PatientFeedbackResponse toFeedbackResponse(PatientFeedback feedback) {
+        PatientFeedbackResponse response = new PatientFeedbackResponse();
+        response.setFeedbackId(feedback.getFeedbackId());
+        response.setAppointmentId(feedback.getAppointment() != null ? feedback.getAppointment().getAppointmentId() : null);
+        response.setSubmittedBy(feedback.getSubmittedBy());
+        response.setRating(feedback.getRating());
+        response.setComments(feedback.getComments());
+        response.setDateSubmitted(feedback.getDateSubmitted());
+        return response;
+    }
+
+    private PatientNoteResponse toNoteResponse(PatientNote note) {
+        PatientNoteResponse response = new PatientNoteResponse();
+        response.setNoteId(note.getNoteId());
+        response.setAppointmentId(note.getAppointment() != null ? note.getAppointment().getAppointmentId() : null);
+        if (note.getAuthor() != null) {
+            response.setAuthorUserId(note.getAuthor().getUserId());
+            response.setAuthorUsername(note.getAuthor().getUsername());
+        }
+        response.setAuthorRole(note.getAuthorRole());
+        response.setNoteText(note.getNoteText());
+        response.setSource(note.getSource());
+        response.setCreatedAt(note.getCreatedAt());
+        return response;
+    }
+
+    private MedicalRecordResponse toMedicalRecordResponse(MedicalRecord record) {
+        MedicalRecordResponse response = new MedicalRecordResponse();
+        response.setRecordId(record.getRecordId());
+        response.setAppointmentId(record.getAppointment().getAppointmentId());
+        response.setDiagnosis(record.getDiagnosis());
+        response.setSymptoms(record.getSymptoms());
+        response.setNotes(record.getNotes());
+        response.setCreatedAt(record.getCreatedAt());
+        return response;
+    }
+
+    private VitalSignResponse toVitalSignResponse(VitalSign vital) {
+        VitalSignResponse response = new VitalSignResponse();
+        response.setVitalId(vital.getVitalId());
+        response.setAppointmentId(vital.getAppointment().getAppointmentId());
+        response.setBloodPressureSystolic(vital.getBloodPressureSystolic());
+        response.setBloodPressureDiastolic(vital.getBloodPressureDiastolic());
+        response.setHeartRate(vital.getHeartRate());
+        response.setTemperatureCelsius(vital.getTemperatureCelsius());
+        response.setWeightKg(vital.getWeightKg());
+        response.setHeightCm(vital.getHeightCm());
+        response.setRecordedAt(vital.getRecordedAt());
+        return response;
+    }
+
+    private ReferralResponse toReferralResponse(Referral referral) {
+        ReferralResponse response = new ReferralResponse();
+        response.setReferralId(referral.getReferralId());
+        response.setAppointmentId(referral.getAppointment().getAppointmentId());
+        response.setReferringDoctorId(referral.getReferringDoctor().getDoctorId());
+        response.setReferringDoctorName(referral.getReferringDoctor().getFirstName() + " "
+                + referral.getReferringDoctor().getLastName());
+        response.setReferredToDoctorId(referral.getReferredToDoctor().getDoctorId());
+        response.setReferredToDoctorName(referral.getReferredToDoctor().getFirstName() + " "
+                + referral.getReferredToDoctor().getLastName());
+        response.setReason(referral.getReason());
+        response.setStatus(referral.getStatus());
+        response.setCreatedAt(referral.getCreatedAt());
         return response;
     }
 }

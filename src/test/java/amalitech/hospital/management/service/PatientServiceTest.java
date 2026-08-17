@@ -8,7 +8,16 @@ import amalitech.hospital.management.exception.runtime.BadRequestException;
 import amalitech.hospital.management.exception.runtime.ConflictException;
 import amalitech.hospital.management.exception.runtime.NotFoundException;
 import amalitech.hospital.management.model.patient.Patient;
+import amalitech.hospital.management.model.patient.PatientAllergy;
+import amalitech.hospital.management.repository.finance.InvoiceRepository;
+import amalitech.hospital.management.repository.patient.AppointmentRepository;
+import amalitech.hospital.management.repository.patient.MedicalRecordRepository;
+import amalitech.hospital.management.repository.patient.PatientAllergyRepository;
+import amalitech.hospital.management.repository.patient.PatientFeedbackRepository;
+import amalitech.hospital.management.repository.patient.PatientNoteRepository;
 import amalitech.hospital.management.repository.patient.PatientRepository;
+import amalitech.hospital.management.repository.patient.ReferralRepository;
+import amalitech.hospital.management.repository.patient.VitalSignRepository;
 import amalitech.hospital.management.utils.filters.PagedRawResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -38,6 +47,14 @@ import static org.mockito.Mockito.when;
 class PatientServiceTest {
 
     @Mock private PatientRepository patientRepository;
+    @Mock private AppointmentRepository appointmentRepository;
+    @Mock private InvoiceRepository invoiceRepository;
+    @Mock private PatientAllergyRepository patientAllergyRepository;
+    @Mock private PatientFeedbackRepository patientFeedbackRepository;
+    @Mock private PatientNoteRepository patientNoteRepository;
+    @Mock private MedicalRecordRepository medicalRecordRepository;
+    @Mock private VitalSignRepository vitalSignRepository;
+    @Mock private ReferralRepository referralRepository;
     // Stands in for the self-injected AOP proxy reference — findPatientsPage is
     // @FindUserData-annotated and normally intercepted by FindUserDataAspect; mocked
     // here at the boundary rather than exercised for real (see CLAUDE.md's Testing section).
@@ -49,7 +66,9 @@ class PatientServiceTest {
 
     @BeforeEach
     void setUp() {
-        patientService = new PatientService(patientRepository, self);
+        patientService = new PatientService(patientRepository, appointmentRepository, invoiceRepository,
+                patientAllergyRepository, patientFeedbackRepository, patientNoteRepository,
+                medicalRecordRepository, vitalSignRepository, referralRepository, self);
 
         existingPatient = new Patient();
         existingPatient.setPatientId("patient-1");
@@ -121,6 +140,32 @@ class PatientServiceTest {
         assertThat(response.getPatientId()).isEqualTo("patient-1");
         assertThat(response.getFirstName()).isEqualTo("Alice");
         assertThat(response.getGender()).isEqualTo("F");
+        // Unstubbed repositories default to an empty list (Mockito), not null — every
+        // eager-loaded collection should still come back as an empty list, never null.
+        assertThat(response.getAllergies()).isEmpty();
+        assertThat(response.getAppointments()).isEmpty();
+        assertThat(response.getInvoices()).isEmpty();
+        assertThat(response.getFeedback()).isEmpty();
+        assertThat(response.getNotes()).isEmpty();
+        assertThat(response.getMedicalRecords()).isEmpty();
+        assertThat(response.getVitalSigns()).isEmpty();
+        assertThat(response.getReferrals()).isEmpty();
+    }
+
+    @Test
+    void getPatient_eagerLoadsLinkedAllergies_unlikeThePaginatedListing() {
+        when(patientRepository.findById("patient-1")).thenReturn(Optional.of(existingPatient));
+        PatientAllergy allergy = new PatientAllergy();
+        allergy.setAllergyId("allergy-1");
+        allergy.setAllergen("Penicillin");
+        allergy.setSeverity("severe");
+        when(patientAllergyRepository.findByPatient_PatientIdAndDeletedAtIsNull("patient-1"))
+                .thenReturn(List.of(allergy));
+
+        PatientResponse response = patientService.getPatient("patient-1");
+
+        assertThat(response.getAllergies()).hasSize(1);
+        assertThat(response.getAllergies().get(0).getAllergen()).isEqualTo("Penicillin");
     }
 
     @Test
