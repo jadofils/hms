@@ -41,7 +41,15 @@ public class FindUserDataAspect {
         boolean paginated = args.length >= 2 && args[0] instanceof Integer && args[1] instanceof Integer;
 
         if (!paginated) {
-            QueryBuilder builder = buildQuery(findUserData, null, null, selectColumnsFor(findUserData.domain()));
+            // A single String arg on a non-paginated call is a runtime filter value —
+            // same "read it off the method's own arguments, not the annotation" trick as
+            // page/size/sortBy/sortDir above, needed here because an annotation attribute
+            // can only ever be a compile-time constant, never a per-request value like
+            // the email a caller just typed into a forgot-password form. Currently only
+            // meaningful for domain="user" (see AuthService.findUserByEmail) — every
+            // other non-paginated caller passes no args at all.
+            String filter1 = args.length == 1 && args[0] instanceof String s && !s.isBlank() ? s : null;
+            QueryBuilder builder = buildQuery(findUserData, filter1, null, selectColumnsFor(findUserData.domain()));
             return entityManager.createNativeQuery(builder.build()).getResultList();
         }
 
@@ -149,9 +157,17 @@ public class FindUserDataAspect {
     private QueryBuilder buildQuery(FindUserData findUserData, String filter1, String filter2, String... selectCols) {
         QueryBuilder builder;
         switch (findUserData.domain()) {
-            case "user" -> builder = QueryBuilder.select(selectCols)
-                    .from("users u")
-                    .whereActive("u");
+            case "user" -> {
+                builder = QueryBuilder.select(selectCols)
+                        .from("users u")
+                        .whereActive("u");
+                // filter1 = an email to check existence for (AuthService.findUserByEmail,
+                // the forgot-password flow's first step) — raw user input from a public,
+                // unauthenticated endpoint, unlike every other concatenated value in this
+                // method, so it's escaped rather than trusted the way userId()/username()
+                // currently are (see this class's own Javadoc on that existing risk).
+                if (filter1 != null) builder.and("u.email = '" + escapeSqlLiteral(filter1) + "'");
+            }
 
             case "role" -> builder = QueryBuilder.select(selectCols)
                     .from("roles r")
@@ -202,5 +218,13 @@ public class FindUserDataAspect {
             builder.and("u.username = '" + findUserData.username() + "'");
         }
         return builder;
+    }
+
+    /** Doubles every single quote — the standard SQL string-literal escape — so a value
+     *  containing one (a single quote is a legal character in an email's local part, and
+     *  the {@code @Email} validator that runs before this doesn't reject it) can't break
+     *  out of the quoted literal it's concatenated into. */
+    private String escapeSqlLiteral(String value) {
+        return value.replace("'", "''");
     }
 }

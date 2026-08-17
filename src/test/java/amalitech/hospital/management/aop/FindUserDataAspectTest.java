@@ -1,6 +1,8 @@
 package amalitech.hospital.management.aop;
 
 import amalitech.hospital.management.annotation.FindUserData;
+import amalitech.hospital.management.model.user.User;
+import amalitech.hospital.management.repository.user.UserRepository;
 import amalitech.hospital.management.utils.filters.PagedRawResult;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -10,6 +12,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -33,6 +36,9 @@ class FindUserDataAspectTest {
     @Autowired
     private TestFindUserDataBean bean;
 
+    @Autowired
+    private UserRepository userRepository;
+
     @Test
     void roleDomain_paginated_runsRealQuery() {
         // Seeded roles always exist and always hold at least one user (see DataSeeder).
@@ -52,6 +58,39 @@ class FindUserDataAspectTest {
     void nonPaginatedCall_runsPlainListQuery() {
         List<?> rows = bean.findUsersNonPaginated();
         assertThat(rows).isNotNull();
+    }
+
+    @Test
+    void nonPaginatedCall_withStringArg_filtersByEmail() {
+        String email = "finduserdata-" + System.nanoTime() + "@example.com";
+        User user = new User();
+        user.setUsername("finduserdata" + System.nanoTime());
+        user.setEmail(email);
+        user.setPasswordHash("hashed-pw");
+        user.setIsActive(true);
+        LocalDateTime now = LocalDateTime.now();
+        user.setCreatedAt(now);
+        user.setUpdatedAt(now);
+        userRepository.save(user);
+
+        List<?> rows = bean.findUserByEmail(email);
+
+        assertThat(rows).hasSize(1);
+    }
+
+    @Test
+    void nonPaginatedCall_withStringArg_returnsEmpty_whenEmailNotFound() {
+        List<?> rows = bean.findUserByEmail("nonexistent-" + System.nanoTime() + "@example.com");
+        assertThat(rows).isEmpty();
+    }
+
+    @Test
+    void nonPaginatedCall_withStringArg_escapesSingleQuotes_ratherThanBreakingTheQuery() {
+        // A single quote is a legal character in an email's local part and isn't rejected
+        // by @Email — this must run as a normal (empty-result) query, not throw a SQL
+        // syntax error from an unescaped literal.
+        List<?> rows = bean.findUserByEmail("o'brien-" + System.nanoTime() + "@example.com");
+        assertThat(rows).isEmpty();
     }
 
     @Test
@@ -91,6 +130,11 @@ class FindUserDataAspectTest {
 
         @FindUserData(domain = "user")
         public List<?> findUsersNonPaginated() {
+            throw new IllegalStateException("FindUserDataAspect did not intercept this call");
+        }
+
+        @FindUserData(domain = "user")
+        public List<?> findUserByEmail(String email) {
             throw new IllegalStateException("FindUserDataAspect did not intercept this call");
         }
 

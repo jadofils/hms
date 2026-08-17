@@ -1,5 +1,6 @@
 package amalitech.hospital.management.service;
 
+import amalitech.hospital.management.annotation.FindUserData;
 import amalitech.hospital.management.config.security.JwtService;
 import amalitech.hospital.management.dto.auth.ChangePasswordRequest;
 import amalitech.hospital.management.dto.auth.ForgotPasswordRequest;
@@ -18,6 +19,7 @@ import amalitech.hospital.management.repository.user.UserSessionRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -28,6 +30,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -56,6 +59,14 @@ public class AuthService {
     private final JwtService jwtService;
     private final MailService mailService;
     private final StringRedisTemplate redisTemplate;
+
+    /** Self-injected proxy reference, used only to call this class's own
+     *  {@code @FindUserData}-annotated method through the Spring AOP proxy — see
+     *  {@link #findUserByEmail}. {@code @Lazy} breaks the circular dependency this
+     *  creates at bean-creation time. */
+    @Lazy
+    private final AuthService self;
+
     private final SecureRandom secureRandom = new SecureRandom();
 
     @Value("${app.frontend-base-url}")
@@ -77,10 +88,10 @@ public class AuthService {
         if (!Boolean.TRUE.equals(user.getIsActive())) {
             throw new UnauthorizedException("This account has been deactivated");
         }
-        // An account with no email at all has nothing to verify (email is optional at
-        // registration — see UserService.createUser) and is exempt from this gate;
-        // one that supplied an email must click the link before logging in.
-        if (user.getEmail() != null && user.getEmailVerifiedAt() == null) {
+        // Email is mandatory (see UserRequest), so this gate is unconditional — every
+        // account must either click its verification link (self-registration) or have
+        // been pre-verified at creation (UserService.createUserByAdmin, DataSeeder).
+        if (user.getEmailVerifiedAt() == null) {
             throw new UnauthorizedException("Please verify your email before logging in");
         }
 
@@ -120,17 +131,37 @@ public class AuthService {
         });
     }
 
-    /** Always succeeds from the caller's point of view — never reveals whether the email exists. */
+    /** Reports outright whether the email is on file — see the Javadoc inside for why
+     *  this deliberately departs from the usual anti-enumeration pattern. */
     public void forgotPassword(ForgotPasswordRequest request) {
-        userRepository.findByEmail(request.getEmail())
-                .filter(user -> user.getDeletedAt() == null)
-                .ifPresent(user -> {
-                    String token = generateResetToken();
-                    redisTemplate.opsForValue().set(RESET_TOKEN_PREFIX + token, user.getUserId(), RESET_TOKEN_TTL);
-                    String resetUrl = frontendBaseUrl + "/reset-password?token=" + token;
-                    mailService.sendPasswordResetEmail(user.getEmail(), user.getUsername(), token, resetUrl,
-                            (int) RESET_TOKEN_TTL.toMinutes());
-                });
+        // Checked first, via the @FindUserData-backed existence lookup, so a caller is
+        // told outright whether that email is on file — a deliberate departure from the
+        // usual anti-account-enumeration pattern (a generic "if that email exists..."
+        // response regardless of outcome), by explicit request.
+        if (self.findUserByEmail(request.getEmail()).isEmpty()) {
+            throw new NotFoundException("No account found with that email");
+        }
+
+        User user = userRepository.findByEmail(request.getEmail())
+                .filter(u -> u.getDeletedAt() == null)
+                .orElseThrow(() -> new NotFoundException("No account found with that email"));
+        String token = generateResetToken();
+        redisTemplate.opsForValue().set(RESET_TOKEN_PREFIX + token, user.getUserId(), RESET_TOKEN_TTL);
+        String resetUrl = frontendBaseUrl + "/reset-password?token=" + token;
+        mailService.sendPasswordResetEmail(user.getEmail(), user.getUsername(), token, resetUrl,
+                (int) RESET_TOKEN_TTL.toMinutes());
+    }
+
+    /**
+     * AOP entry point for {@code FindUserDataAspect} — must be called via {@link #self},
+     * never as {@code this.findUserByEmail(...)}: Spring AOP proxies only intercept calls
+     * made through the proxy, so a same-class call would bypass the aspect and fall
+     * through to the body below. Returns the raw matching row(s) for the email; callers
+     * only check emptiness, not the row shape.
+     */
+    @FindUserData(domain = "user")
+    public List<?> findUserByEmail(String email) {
+        throw new IllegalStateException("FindUserDataAspect did not intercept this call");
     }
 
     @Transactional
@@ -151,14 +182,9 @@ public class AuthService {
 
         revokeAllSessions(userId);
         // Notifies whoever holds the mailbox — including an attacker who reset a
-        // compromised password — so a legitimate owner locked out can tell something happened.
-        // Skipped when there's no email on file (optional at registration — see
-        // UserService.createUser), same null-guard convention as there: EmailAspect's
-        // MimeMessageHelper.setTo(null) throws uncaught, so calling this unconditionally
-        // would 500 for any account that registered without an email.
-        if (user.getEmail() != null) {
-            mailService.sendPasswordChangedEmail(user.getEmail(), user.getUsername(), now);
-        }
+        // compromised password — so a legitimate owner locked out can tell something
+        // happened. Unconditional now that email is mandatory (see UserRequest).
+        mailService.sendPasswordChangedEmail(user.getEmail(), user.getUsername(), now);
     }
 
     /** Consumes the single-use token {@code UserService.createUser} emailed as a link.
@@ -191,10 +217,9 @@ public class AuthService {
         user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
         user.setUpdatedAt(now);
         userRepository.save(user);
-        // See resetPassword's identical guard above for why this is conditional.
-        if (user.getEmail() != null) {
-            mailService.sendPasswordChangedEmail(user.getEmail(), user.getUsername(), now);
-        }
+        // Unconditional now that email is mandatory (see UserRequest) — see resetPassword's
+        // identical notification above.
+        mailService.sendPasswordChangedEmail(user.getEmail(), user.getUsername(), now);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

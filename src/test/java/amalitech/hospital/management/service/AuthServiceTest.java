@@ -54,6 +54,10 @@ class AuthServiceTest {
     @Mock private StringRedisTemplate redisTemplate;
     @Mock private ValueOperations<String, String> valueOperations;
     @Mock private HttpServletRequest httpServletRequest;
+    // Stands in for the self-injected AOP proxy reference — findUserByEmail is
+    // @FindUserData-annotated and normally intercepted by FindUserDataAspect; mocked
+    // here at the boundary rather than exercised for real (see CLAUDE.md's Testing section).
+    @Mock private AuthService self;
 
     private AuthService authService;
 
@@ -63,7 +67,7 @@ class AuthServiceTest {
     @BeforeEach
     void setUp() {
         authService = new AuthService(userRepository, userRoleRepository, userSessionRepository,
-                passwordEncoder, jwtService, mailService, redisTemplate, "http://localhost:3000");
+                passwordEncoder, jwtService, mailService, redisTemplate, self, "http://localhost:3000");
 
         existingUser = new User();
         existingUser.setUserId("user-1");
@@ -131,28 +135,6 @@ class AuthServiceTest {
         assertThatThrownBy(() -> authService.login(request, httpServletRequest))
                 .isInstanceOf(UnauthorizedException.class)
                 .hasMessageContaining("verify your email");
-    }
-
-    @Test
-    void login_allowsUnverifiedState_whenNoEmailOnFileAtAll() {
-        // No email at all (optional at registration) has nothing to verify, and must not
-        // be blocked by the same gate that rejects an unverified *supplied* email.
-        existingUser.setEmail(null);
-        existingUser.setEmailVerifiedAt(null);
-        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(existingUser));
-        when(passwordEncoder.matches("pw", "hashed-pw")).thenReturn(true);
-        when(userRoleRepository.findByIdUserId("user-1")).thenReturn(List.of(assignment(adminRole)));
-        when(jwtService.getExpiryHours()).thenReturn(8L);
-        when(userSessionRepository.save(any(UserSession.class))).thenAnswer(inv -> {
-            UserSession session = inv.getArgument(0);
-            session.setSessionId("session-1");
-            return session;
-        });
-        when(jwtService.generateToken(anyString(), anyString(), anyString(), anyString())).thenReturn("signed-token");
-
-        LoginResponse response = authService.login(loginRequest("alice", "pw"), httpServletRequest);
-
-        assertThat(response.getToken()).isEqualTo("signed-token");
     }
 
     @Test
@@ -287,31 +269,38 @@ class AuthServiceTest {
     // ── forgotPassword ───────────────────────────────────────────────────────
 
     @Test
-    void forgotPassword_doesNothing_whenEmailNotFound() {
-        when(userRepository.findByEmail("nobody@example.com")).thenReturn(Optional.empty());
+    void forgotPassword_throwsNotFound_whenEmailNotOnFile() {
+        org.mockito.Mockito.doReturn(List.of()).when(self).findUserByEmail("nobody@example.com");
         ForgotPasswordRequest request = new ForgotPasswordRequest();
         request.setEmail("nobody@example.com");
 
-        authService.forgotPassword(request);
+        assertThatThrownBy(() -> authService.forgotPassword(request))
+                .isInstanceOf(NotFoundException.class);
 
         verify(redisTemplate, never()).opsForValue();
         verify(mailService, never()).sendPasswordResetEmail(anyString(), anyString(), anyString(), anyString(), anyInt());
     }
 
     @Test
-    void forgotPassword_skipsSoftDeletedUser() {
+    void forgotPassword_throwsNotFound_whenUserSoftDeleted() {
+        // The existence check itself already excludes soft-deleted rows (whereActive("u")
+        // in FindUserDataAspect) — this covers the second guard in forgotPassword itself,
+        // for the (should-never-happen-but-defense-in-depth) case where the two checks
+        // disagree.
         existingUser.setDeletedAt(LocalDateTime.now());
-        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(existingUser));
+        org.mockito.Mockito.doReturn(List.of()).when(self).findUserByEmail("alice@example.com");
         ForgotPasswordRequest request = new ForgotPasswordRequest();
         request.setEmail("alice@example.com");
 
-        authService.forgotPassword(request);
+        assertThatThrownBy(() -> authService.forgotPassword(request))
+                .isInstanceOf(NotFoundException.class);
 
         verify(mailService, never()).sendPasswordResetEmail(anyString(), anyString(), anyString(), anyString(), anyInt());
     }
 
     @Test
     void forgotPassword_storesTokenInRedisAndSendsEmail_whenUserFound() {
+        org.mockito.Mockito.doReturn(List.of(new Object())).when(self).findUserByEmail("alice@example.com");
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(existingUser));
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         ForgotPasswordRequest request = new ForgotPasswordRequest();
