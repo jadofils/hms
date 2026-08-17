@@ -56,18 +56,25 @@ spring:
           auth: true
           starttls:
             enable: true
+  # GraphQL configuration — real Spring for GraphQL properties (`spring.graphql.*`).
+  # The dependency on the classpath is `spring-boot-starter-graphql` (Spring for
+  # GraphQL), NOT graphql-java-kickstart's `graphql-spring-boot-starter` — this file
+  # previously had a top-level `graphql.tools.*`/`graphql.servlet.*` block, which are
+  # that *other* library's property keys and were silently ignored by the actual
+  # dependency present. Every `*.graphqls` file found under `schema.locations` is
+  # parsed and merged into one schema automatically (see `config/graphql/GraphQlConfig`
+  # for the one thing that merge doesn't already cover: custom scalars).
+  graphql:
+    path: /graphql
+    schema:
+      locations: classpath:graphql/
+    graphiql:
+      # Bundled GraphiQL UI at /graphiql — a free, zero-setup fallback for manual
+      # checks. Altair (or any other GraphQL client) needs none of this bundling; it
+      # just needs this reachable, introspectable /graphql endpoint.
+      enabled: true
 
 # Redis (still useful for caching sessions, tokens, etc.)
-
-# GraphQL configuration
-graphql:
-  tools:
-    schema-location-pattern: "**/*.graphqls"   # where your schema files live
-  servlet:
-    mapping: /graphql                          # single endpoint
-    enabled: true
-    cors-enabled: true
-    exception-handlers-enabled: true
 
 # Security
 security:
