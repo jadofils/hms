@@ -2,6 +2,7 @@ package amalitech.hospital.management.service;
 
 import amalitech.hospital.management.dto.doctor.DoctorRequest;
 import amalitech.hospital.management.dto.doctor.DoctorResponse;
+import amalitech.hospital.management.exception.runtime.BadRequestException;
 import amalitech.hospital.management.exception.runtime.ConflictException;
 import amalitech.hospital.management.exception.runtime.NotFoundException;
 import amalitech.hospital.management.model.doctor.Department;
@@ -124,6 +125,20 @@ class DoctorServiceTest {
     // ── createDoctor ─────────────────────────────────────────────────────────
 
     @Test
+    void createDoctor_throwsBadRequest_whenNoDepartmentIdsProvided() {
+        DoctorRequest request = requestFor("Bob", "bob@example.com", "7654321");
+        request.setDepartmentIds(null);
+
+        assertThatThrownBy(() -> doctorService.createDoctor(request))
+                .isInstanceOf(BadRequestException.class);
+        verify(doctorRepository, never()).save(any());
+
+        request.setDepartmentIds(List.of());
+        assertThatThrownBy(() -> doctorService.createDoctor(request))
+                .isInstanceOf(BadRequestException.class);
+    }
+
+    @Test
     void createDoctor_throwsConflict_whenEmailTaken() {
         DoctorRequest request = requestFor("Bob", "bob@example.com", "7654321");
         when(doctorRepository.existsByEmail("bob@example.com")).thenReturn(true);
@@ -145,16 +160,39 @@ class DoctorServiceTest {
     }
 
     @Test
-    void createDoctor_savesSuccessfully() {
+    void createDoctor_throwsNotFound_whenADepartmentIdDoesNotExist() {
         DoctorRequest request = requestFor("Bob", "bob@example.com", "7654321");
-        when(doctorRepository.save(any(Doctor.class))).thenAnswer(inv -> inv.getArgument(0));
+        Doctor newDoctor = new Doctor();
+        newDoctor.setDoctorId("doctor-2");
+        when(doctorRepository.save(any(Doctor.class))).thenReturn(newDoctor);
+        when(doctorRepository.findById("doctor-2")).thenReturn(Optional.of(newDoctor));
+        when(departmentRepository.findById("dept-1")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> doctorService.createDoctor(request))
+                .isInstanceOf(NotFoundException.class);
+    }
+
+    @Test
+    void createDoctor_savesSuccessfullyAndAssignsEachRequestedDepartment() {
+        DoctorRequest request = requestFor("Bob", "bob@example.com", "7654321");
+        Doctor newDoctor = new Doctor();
+        newDoctor.setDoctorId("doctor-2");
+        when(doctorRepository.save(any(Doctor.class))).thenReturn(newDoctor);
+        when(doctorRepository.findById("doctor-2")).thenReturn(Optional.of(newDoctor));
+        when(departmentRepository.findById("dept-1")).thenReturn(Optional.of(existingDepartment));
 
         DoctorResponse response = doctorService.createDoctor(request);
 
+        // doctorRepository.save is stubbed to a fixed pre-built entity (per the composite
+        // "generated id" workaround this mirrors from RoleServiceTest.createRole's own
+        // permissionIds test), so the response's own scalar fields aren't meaningful to
+        // assert on here — what matters is the doctorId round-trips and the department got
+        // assigned onto the actual saved-and-refetched entity.
         ArgumentCaptor<Doctor> captor = ArgumentCaptor.forClass(Doctor.class);
-        verify(doctorRepository).save(captor.capture());
-        assertThat(captor.getValue().getCreatedAt()).isNotNull();
-        assertThat(response.getFirstName()).isEqualTo("Bob");
+        verify(doctorRepository, org.mockito.Mockito.atLeastOnce()).save(captor.capture());
+        assertThat(captor.getAllValues().get(0).getCreatedAt()).isNotNull();
+        assertThat(response.getDoctorId()).isEqualTo("doctor-2");
+        assertThat(newDoctor.getDepartments()).contains(existingDepartment);
     }
 
     // ── updateDoctor ─────────────────────────────────────────────────────────
@@ -286,18 +324,35 @@ class DoctorServiceTest {
     }
 
     @Test
-    void removeDepartment_removesDepartment_whenAssigned() {
+    void removeDepartment_removesDepartment_whenAnotherRemains() {
+        Department secondDepartment = new Department();
+        secondDepartment.setDepartmentId("dept-2");
         existingDoctor.getDepartments().add(existingDepartment);
+        existingDoctor.getDepartments().add(secondDepartment);
         when(doctorRepository.findById("doctor-1")).thenReturn(Optional.of(existingDoctor));
         when(doctorRepository.save(any(Doctor.class))).thenAnswer(inv -> inv.getArgument(0));
 
         doctorService.removeDepartment("doctor-1", "dept-1");
 
-        assertThat(existingDoctor.getDepartments()).isEmpty();
+        assertThat(existingDoctor.getDepartments()).containsExactly(secondDepartment);
+    }
+
+    @Test
+    void removeDepartment_throwsConflict_whenItIsTheLastRemainingDepartment() {
+        existingDoctor.getDepartments().add(existingDepartment);
+        when(doctorRepository.findById("doctor-1")).thenReturn(Optional.of(existingDoctor));
+
+        assertThatThrownBy(() -> doctorService.removeDepartment("doctor-1", "dept-1"))
+                .isInstanceOf(ConflictException.class);
+        verify(doctorRepository, never()).save(any());
+        assertThat(existingDoctor.getDepartments()).contains(existingDepartment);
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────
 
+    // departmentIds defaults to ["dept-1"] — only createDoctor tests care about its
+    // content/stubbing; updateDoctor ignores the field entirely (see DoctorRequest's
+    // Javadoc), so a harmless default here keeps every other call site unchanged.
     private static DoctorRequest requestFor(String firstName, String email, String phone) {
         DoctorRequest request = new DoctorRequest();
         request.setFirstName(firstName);
@@ -305,6 +360,7 @@ class DoctorServiceTest {
         request.setSpecialization("General");
         request.setPhone(phone);
         request.setEmail(email);
+        request.setDepartmentIds(List.of("dept-1"));
         return request;
     }
 }

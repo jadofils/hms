@@ -9,6 +9,9 @@ import amalitech.hospital.management.enums.Resource;
 import amalitech.hospital.management.service.DoctorService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
+import io.swagger.v3.oas.annotations.media.ArraySchema;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -39,6 +42,10 @@ public class DoctorController {
                     + "`specialization`, `phone`, `email`. An omitted or unrecognized "
                     + "column never errors — it falls back to `doctorId` ascending.")
     @ApiResponse(responseCode = "200", description = "Doctors returned")
+    @Parameter(name = "sort", in = ParameterIn.QUERY,
+            description = "Sort by property,direction. Possible properties: doctorId, firstName, "
+                    + "lastName, specialization, phone, email.",
+            array = @ArraySchema(schema = @Schema(type = "string")), example = "lastName,desc")
     @RequirePermission(resource = Resource.DOCTORS, action = PermissionAction.READ)
     public ResponseEntity<ApiResult<PagedModel<DoctorResponse>>> getDoctors(Pageable pageable) {
         return ResponseEntity.ok(ApiResult.of("Doctors retrieved", doctorService.getDoctors(pageable)));
@@ -55,8 +62,12 @@ public class DoctorController {
     }
 
     @PostMapping
-    @Operation(summary = "Create a doctor")
+    @Operation(summary = "Create a doctor",
+            description = "`departmentIds` must include at least one existing department id — "
+                    + "a doctor must belong somewhere from the moment they're created.")
     @ApiResponse(responseCode = "201", description = "Doctor created")
+    @ApiResponse(responseCode = "400", description = "No departmentIds provided")
+    @ApiResponse(responseCode = "404", description = "A departmentId does not exist")
     @ApiResponse(responseCode = "409", description = "Phone or email already registered")
     @RequirePermission(resource = Resource.DOCTORS, action = PermissionAction.CREATE)
     public ResponseEntity<ApiResult<DoctorResponse>> createDoctor(@Valid @RequestBody DoctorRequest request) {
@@ -103,9 +114,12 @@ public class DoctorController {
     }
 
     @DeleteMapping("/{doctorId}/departments/{departmentId}")
-    @Operation(summary = "Remove a doctor from a department")
+    @Operation(summary = "Remove a doctor from a department",
+            description = "Refused if this is the doctor's last remaining department — "
+                    + "assign a replacement department first.")
     @ApiResponse(responseCode = "204", description = "Department removed")
     @ApiResponse(responseCode = "404", description = "Doctor is not assigned to this department")
+    @ApiResponse(responseCode = "409", description = "This is the doctor's last remaining department")
     @RequirePermission(resource = Resource.DOCTORS, action = PermissionAction.UPDATE)
     public ResponseEntity<Void> removeDepartment(
             @Parameter(description = "Doctor UUID") @PathVariable String doctorId,

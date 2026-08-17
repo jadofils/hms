@@ -4,6 +4,7 @@ import amalitech.hospital.management.annotation.FindUserData;
 import amalitech.hospital.management.dto.doctor.DepartmentResponse;
 import amalitech.hospital.management.dto.doctor.DoctorRequest;
 import amalitech.hospital.management.dto.doctor.DoctorResponse;
+import amalitech.hospital.management.exception.runtime.BadRequestException;
 import amalitech.hospital.management.exception.runtime.ConflictException;
 import amalitech.hospital.management.exception.runtime.NotFoundException;
 import amalitech.hospital.management.model.doctor.Department;
@@ -33,6 +34,13 @@ import java.util.List;
  *
  * Single-item lookups are cached in Redis under the "doctors" cache; every write
  * invalidates the affected entry.
+ *
+ * <p>Every doctor must belong to at least one department — enforced at two points, not
+ * one, since {@link #assignDepartment}/{@link #removeDepartment} can change membership
+ * long after creation: {@link #createDoctor} rejects a request with no
+ * {@code departmentIds} before persisting anything, and {@link #removeDepartment}
+ * refuses to strip a doctor's last remaining department. Together these mean there is no
+ * API path that can ever leave a doctor with zero departments once created.
  */
 @Service
 @RequiredArgsConstructor
@@ -95,8 +103,20 @@ public class DoctorService {
         return toResponse(findDoctorOrThrow(doctorId));
     }
 
+    /**
+     * {@code request.getDepartmentIds()} must be non-empty — a doctor must belong
+     * somewhere from the moment they're created (see this class's Javadoc). Each id is
+     * granted via {@link #assignDepartment} in the same transaction as the save above,
+     * so an unknown department id (or a request that manages to pass the same id twice)
+     * rolls the whole creation back rather than leaving a half-assigned doctor behind —
+     * the same atomicity {@code RoleService.createRole} uses for
+     * {@code RoleRequest.permissionIds}.
+     */
     @Transactional
     public DoctorResponse createDoctor(DoctorRequest request) {
+        if (request.getDepartmentIds() == null || request.getDepartmentIds().isEmpty()) {
+            throw new BadRequestException("A doctor must be assigned to at least one department");
+        }
         if (request.getEmail() != null && doctorRepository.existsByEmail(request.getEmail())) {
             throw new ConflictException("Email '" + request.getEmail() + "' is already registered");
         }
@@ -113,7 +133,13 @@ public class DoctorService {
         doctor.setEmail(request.getEmail());
         doctor.setCreatedAt(now);
         doctor.setUpdatedAt(now);
-        return toResponse(doctorRepository.save(doctor));
+        Doctor saved = doctorRepository.save(doctor);
+
+        for (String departmentId : request.getDepartmentIds()) {
+            assignDepartment(saved.getDoctorId(), departmentId);
+        }
+
+        return toResponse(saved);
     }
 
     @Transactional
@@ -164,16 +190,27 @@ public class DoctorService {
         doctorRepository.save(doctor);
     }
 
+    /**
+     * Refuses to remove a doctor's last remaining department (see this class's
+     * Javadoc) — assign a replacement department first if the doctor is moving
+     * elsewhere entirely.
+     */
     @Transactional
     @CacheEvict(value = "doctors", key = "#doctorId")
     public void removeDepartment(String doctorId, String departmentId) {
         Doctor doctor = findDoctorOrThrow(doctorId);
         List<Department> departments = doctor.getDepartments();
-        boolean removed = departments != null
-                && departments.removeIf(d -> d.getDepartmentId().equals(departmentId));
-        if (!removed) {
+        boolean isAssigned = departments != null
+                && departments.stream().anyMatch(d -> d.getDepartmentId().equals(departmentId));
+        if (!isAssigned) {
             throw new NotFoundException("Doctor is not assigned to this department");
         }
+        if (departments.size() == 1) {
+            throw new ConflictException(
+                    "Doctor must remain assigned to at least one department — "
+                            + "assign another department before removing the last one");
+        }
+        departments.removeIf(d -> d.getDepartmentId().equals(departmentId));
         doctorRepository.save(doctor);
     }
 

@@ -24,13 +24,15 @@ class DoctorControllerTest extends AbstractControllerTest {
         String token = adminToken();
         String phone = uniqueDigits(9);
         String email = "doctor" + uniqueDigits(6) + "@example.com";
+        String departmentId = createDepartment(token);
 
         mockMvc.perform(get("/api/v1/doctors?sort=lastName,desc")
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk());
 
         String createBody = "{\"firstName\":\"Test\",\"lastName\":\"Doctor\","
-                + "\"specialization\":\"Cardiology\",\"phone\":\"" + phone + "\",\"email\":\"" + email + "\"}";
+                + "\"specialization\":\"Cardiology\",\"phone\":\"" + phone + "\",\"email\":\"" + email
+                + "\",\"departmentIds\":[\"" + departmentId + "\"]}";
         MvcResult createResult = mockMvc.perform(post("/api/v1/doctors")
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -67,9 +69,11 @@ class DoctorControllerTest extends AbstractControllerTest {
         String token = adminToken();
         String phone = uniqueDigits(9);
         String email = "doctor" + uniqueDigits(6) + "@example.com";
+        String firstDepartmentId = createDepartment(token);
 
         String createDoctorBody = "{\"firstName\":\"Dept\",\"lastName\":\"Doctor\","
-                + "\"specialization\":\"Pediatrics\",\"phone\":\"" + phone + "\",\"email\":\"" + email + "\"}";
+                + "\"specialization\":\"Pediatrics\",\"phone\":\"" + phone + "\",\"email\":\"" + email
+                + "\",\"departmentIds\":[\"" + firstDepartmentId + "\"]}";
         MvcResult doctorResult = mockMvc.perform(post("/api/v1/doctors")
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -79,18 +83,9 @@ class DoctorControllerTest extends AbstractControllerTest {
         String doctorId = objectMapper.readTree(doctorResult.getResponse().getContentAsString())
                 .at("/data/doctorId").asText();
 
-        String deptName = "Test Department " + uniqueDigits(6);
-        String createDeptBody = "{\"name\":\"" + deptName + "\",\"location\":\"Main Building\"}";
-        MvcResult deptResult = mockMvc.perform(post("/api/v1/departments")
-                        .header("Authorization", "Bearer " + token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(createDeptBody))
-                .andExpect(status().isCreated())
-                .andReturn();
-        String departmentId = objectMapper.readTree(deptResult.getResponse().getContentAsString())
-                .at("/data/departmentId").asText();
+        String secondDepartmentId = createDepartment(token);
 
-        mockMvc.perform(post("/api/v1/doctors/" + doctorId + "/departments/" + departmentId)
+        mockMvc.perform(post("/api/v1/doctors/" + doctorId + "/departments/" + secondDepartmentId)
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isNoContent());
 
@@ -102,15 +97,49 @@ class DoctorControllerTest extends AbstractControllerTest {
                 .at("/data/departments");
         boolean found = false;
         for (JsonNode dept : departments) {
-            if (departmentId.equals(dept.at("/departmentId").asText())) {
+            if (secondDepartmentId.equals(dept.at("/departmentId").asText())) {
                 found = true;
                 break;
             }
         }
         org.junit.jupiter.api.Assertions.assertTrue(found, "assigned department should appear in doctor's departments");
 
-        mockMvc.perform(delete("/api/v1/doctors/" + doctorId + "/departments/" + departmentId)
+        // Removing the second department is fine — the first one is still there.
+        mockMvc.perform(delete("/api/v1/doctors/" + doctorId + "/departments/" + secondDepartmentId)
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isNoContent());
+
+        // But the first (now the doctor's only) department can't be removed — a doctor
+        // must always remain assigned to at least one.
+        mockMvc.perform(delete("/api/v1/doctors/" + doctorId + "/departments/" + firstDepartmentId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void createDoctor_returns400_whenNoDepartmentIdsProvided() throws Exception {
+        String token = adminToken();
+        String body = "{\"firstName\":\"No\",\"lastName\":\"Department\","
+                + "\"phone\":\"" + uniqueDigits(9) + "\",\"email\":\"nodept" + uniqueDigits(6) + "@example.com\"}";
+
+        mockMvc.perform(post("/api/v1/doctors")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void createDoctor_returns404_whenADepartmentIdDoesNotExist() throws Exception {
+        String token = adminToken();
+        String body = "{\"firstName\":\"Bad\",\"lastName\":\"Department\","
+                + "\"phone\":\"" + uniqueDigits(9) + "\",\"email\":\"baddept" + uniqueDigits(6)
+                + "@example.com\",\"departmentIds\":[\"nonexistent-department\"]}";
+
+        mockMvc.perform(post("/api/v1/doctors")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isNotFound());
     }
 }
