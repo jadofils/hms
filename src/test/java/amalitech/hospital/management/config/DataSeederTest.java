@@ -4,14 +4,12 @@ import amalitech.hospital.management.dto.user.UserRequest;
 import amalitech.hospital.management.dto.user.UserResponse;
 import amalitech.hospital.management.dto.user.role.RoleRequest;
 import amalitech.hospital.management.dto.user.role.RoleResponse;
-import amalitech.hospital.management.dto.user.role.permission.PermissionRequest;
-import amalitech.hospital.management.dto.user.role.permission.PermissionResponse;
 import amalitech.hospital.management.enums.PermissionAction;
 import amalitech.hospital.management.enums.RoleName;
+import amalitech.hospital.management.model.user.role.Permission;
 import amalitech.hospital.management.repository.user.UserRepository;
 import amalitech.hospital.management.repository.user.role.PermissionRepository;
 import amalitech.hospital.management.repository.user.role.RoleRepository;
-import amalitech.hospital.management.service.PermissionService;
 import amalitech.hospital.management.service.RoleService;
 import amalitech.hospital.management.service.UserService;
 import org.junit.jupiter.api.BeforeEach;
@@ -45,7 +43,6 @@ class DataSeederTest {
     @Mock private PermissionRepository permissionRepository;
     @Mock private UserRepository userRepository;
     @Mock private RoleService roleService;
-    @Mock private PermissionService permissionService;
     @Mock private UserService userService;
 
     private DataSeeder dataSeeder;
@@ -53,15 +50,17 @@ class DataSeederTest {
     @BeforeEach
     void setUp() {
         dataSeeder = new DataSeeder(roleRepository, permissionRepository, userRepository,
-                roleService, permissionService, userService);
+                roleService, userService);
     }
 
     @Test
     void run_createsEveryPermissionRoleAndSeedUser_onAFreshDatabase() {
         when(permissionRepository.findByResourceAndAction(anyString(), anyString())).thenReturn(Optional.empty());
-        PermissionResponse permissionResponse = new PermissionResponse();
-        permissionResponse.setPermissionId("perm-id");
-        when(permissionService.createPermission(any())).thenReturn(permissionResponse);
+        when(permissionRepository.save(any(Permission.class))).thenAnswer(inv -> {
+            Permission saved = inv.getArgument(0);
+            saved.setPermissionId("perm-id");
+            return saved;
+        });
 
         when(roleRepository.findByRoleName(anyString())).thenReturn(Optional.empty());
         RoleResponse roleResponse = new RoleResponse();
@@ -76,8 +75,8 @@ class DataSeederTest {
         dataSeeder.run();
 
         int resourceCount = amalitech.hospital.management.enums.Resource.values().length;
-        verify(permissionService, times(resourceCount * PermissionAction.values().length))
-                .createPermission(any(PermissionRequest.class));
+        verify(permissionRepository, times(resourceCount * PermissionAction.values().length))
+                .save(any(Permission.class));
         verify(roleService, times(RoleName.values().length)).createRole(any(RoleRequest.class));
         verify(userService, times(5)).createUser(any(UserRequest.class));
         verify(roleService, atLeastOnce()).grantPermission(eq("role-id"), eq("perm-id"));

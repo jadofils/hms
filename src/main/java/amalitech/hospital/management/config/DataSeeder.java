@@ -2,17 +2,16 @@ package amalitech.hospital.management.config;
 
 import amalitech.hospital.management.dto.user.UserRequest;
 import amalitech.hospital.management.dto.user.role.RoleRequest;
-import amalitech.hospital.management.dto.user.role.permission.PermissionRequest;
 import amalitech.hospital.management.enums.PermissionAction;
 import amalitech.hospital.management.enums.Resource;
 import amalitech.hospital.management.enums.RoleName;
 import amalitech.hospital.management.exception.runtime.ConflictException;
 import amalitech.hospital.management.model.user.role.Permission;
 import amalitech.hospital.management.model.user.role.Role;
+import amalitech.hospital.management.model.user.User;
 import amalitech.hospital.management.repository.user.UserRepository;
 import amalitech.hospital.management.repository.user.role.PermissionRepository;
 import amalitech.hospital.management.repository.user.role.RoleRepository;
-import amalitech.hospital.management.service.PermissionService;
 import amalitech.hospital.management.service.RoleService;
 import amalitech.hospital.management.service.UserService;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +20,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -102,9 +102,14 @@ public class DataSeeder implements CommandLineRunner {
 
     /** One sample login per role. Seed credentials for dev/demo use, not production
      *  secrets — logged once below so they're easy to find, the same spirit as Spring
-     *  Security's own generated dev password log line. No email is set, so
-     *  {@code UserService.createUser} never fires a welcome-email send on startup. */
-    private record SeedUser(String username, String password, RoleName role) {}
+     *  Security's own generated dev password log line. Email is mandatory now (see
+     *  {@code UserRequest}) — derived as {@code username@gmail.com} rather than
+     *  hand-listed per entry, so it can never drift out of sync with the username. */
+    private record SeedUser(String username, String password, RoleName role) {
+        String email() {
+            return username() + "@gmail.com";
+        }
+    }
 
     private static final List<SeedUser> SEED_USERS = List.of(
             new SeedUser("admin", "Admin@123", RoleName.ADMIN),
@@ -118,7 +123,6 @@ public class DataSeeder implements CommandLineRunner {
     private final PermissionRepository permissionRepository;
     private final UserRepository userRepository;
     private final RoleService roleService;
-    private final PermissionService permissionService;
     private final UserService userService;
 
     @Override
@@ -134,23 +138,34 @@ public class DataSeeder implements CommandLineRunner {
                 permissionIds.size(), roleIds.size(), SEED_USERS.size());
     }
 
-    /** @return every (resource,action) pair's permission id, keyed as {@code "resource:action"}. */
+    /**
+     * @return every (resource,action) pair's permission id, keyed as {@code "resource:action"}.
+     * Creates directly via {@link PermissionRepository} rather than
+     * {@code PermissionService} — permissions are a fixed, system-managed catalog
+     * (every {@code Resource}<code>×</code>{@code PermissionAction} combination, seeded
+     * here and nowhere else) with no ad hoc create/update/delete capability exposed
+     * anywhere in the API; this bootstrap is the one legitimate writer.
+     */
     private Map<String, String> seedPermissions() {
         Map<String, String> permissionIds = new LinkedHashMap<>();
+        LocalDateTime now = LocalDateTime.now();
         for (Resource resource : Resource.values()) {
             for (PermissionAction action : PermissionAction.values()) {
                 String resourceValue = resource.getDbValue();
-                String key = resourceValue + ":" + action.getDbValue();
+                String actionValue = action.getDbValue();
+                String key = resourceValue + ":" + actionValue;
                 Permission existing = permissionRepository
-                        .findByResourceAndAction(resourceValue, action.getDbValue()).orElse(null);
+                        .findByResourceAndAction(resourceValue, actionValue).orElse(null);
                 if (existing != null) {
                     permissionIds.put(key, existing.getPermissionId());
                     continue;
                 }
-                PermissionRequest request = new PermissionRequest();
-                request.setResource(resourceValue);
-                request.setAction(action.getDbValue());
-                permissionIds.put(key, permissionService.createPermission(request).getPermissionId());
+                Permission permission = new Permission();
+                permission.setResource(resourceValue);
+                permission.setAction(actionValue);
+                permission.setCreatedAt(now);
+                permission.setUpdatedAt(now);
+                permissionIds.put(key, permissionRepository.save(permission).getPermissionId());
             }
         }
         return permissionIds;
@@ -197,7 +212,18 @@ public class DataSeeder implements CommandLineRunner {
                         UserRequest request = new UserRequest();
                         request.setUsername(seed.username());
                         request.setPassword(seed.password());
-                        return userService.createUser(request).getUserId();
+                        request.setEmail(seed.email());
+                        String newUserId = userService.createUser(request).getUserId();
+                        // A seeded demo account has no real owner to prove mailbox
+                        // ownership to — self-registration's usual email-verification
+                        // gate (AuthService.login) would otherwise lock every one of
+                        // these out immediately, the same reasoning
+                        // UserService.createUserByAdmin already applies.
+                        userRepository.findById(newUserId).ifPresent(user -> {
+                            user.setEmailVerifiedAt(LocalDateTime.now());
+                            userRepository.save(user);
+                        });
+                        return newUserId;
                     });
             try {
                 userService.assignRole(userId, roleIds.get(seed.role()));

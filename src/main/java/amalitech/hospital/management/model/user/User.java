@@ -37,17 +37,19 @@ public class User {
     @Column(name = "password_hash", nullable = false, length = 255)
     private String passwordHash;
 
-    @Column(name = "email", length = 100, unique = true)
+    @Column(name = "email", length = 100, nullable = false, unique = true)
     private String email;
 
     @Column(name = "is_active", nullable = false)
     private Boolean isActive = true;
 
-    /** {@code null} = not verified yet, or no email was ever on file to verify — see
-     *  {@code AuthService.login}'s gate and {@code AuthService.verifyEmail}. Set
-     *  immediately (not via the link flow) for accounts {@code UserService.createUserByAdmin}
-     *  provisions, since receiving the generated password at that address already proves
-     *  deliverability. */
+    /** {@code null} = not verified yet — see {@code AuthService.login}'s gate and
+     *  {@code AuthService.verifyEmail}. Every account has an email (see the column
+     *  above), so every account either goes through the link flow or is marked verified
+     *  immediately at creation — set immediately for accounts
+     *  {@code UserService.createUserByAdmin} provisions, since receiving the generated
+     *  password at that address already proves deliverability, and for seeded demo
+     *  accounts ({@code DataSeeder}), which have no real owner to prove anything to. */
     @Column(name = "email_verified_at")
     private LocalDateTime emailVerifiedAt;
 
