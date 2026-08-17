@@ -1,0 +1,28 @@
+# Invoice — references Appointment+Patient, no other table depends on it.
+
+type Invoice {
+    invoiceId: ID!
+    appointment: Appointment!
+    patient: Patient!
+    totalAmount: BigDecimal!
+    paymentStatus: String!
+    issuedAt: LocalDateTime!
+}
+
+input InvoiceInput {
+    appointmentId: ID!
+    patientId: ID!
+    totalAmount: BigDecimal
+    paymentStatus: String
+}
+
+extend type Query {
+    invoices(page: Int! = 0, size: Int! = 20): [Invoice!]!
+    invoice(invoiceId: ID!): Invoice
+}
+
+extend type Mutation {
+    createInvoice(input: InvoiceInput!): Invoice!
+    updateInvoice(invoiceId: ID!, input: InvoiceInput!): Invoice!
+    deleteInvoice(invoiceId: ID!): Boolean!
+}
