@@ -1,0 +1,29 @@
+# Shared scalars + the root Query/Mutation types every domain schema file extends.
+#
+# Every *.graphqls file under this directory is parsed and merged into ONE schema by
+# Spring for GraphQL's own auto-configuration (spring.graphql.schema.locations, see
+# application.yaml) — splitting by domain here is purely for readability, mirroring this
+# codebase's own model/service/controller package boundaries (see
+# config/graphql/GraphQlConfig's Javadoc). A type declared in one file (e.g. `Patient`
+# here... actually in patient.graphqls) can be referenced from any other file the same way
+# a Java class from one package is referenced from another.
+
+"""An ISO-8601 calendar date with no time component, e.g. 1990-01-01."""
+scalar Date
+
+"""An ISO-8601 local date-time with no time zone, e.g. 2026-01-01T10:00:00."""
+scalar LocalDateTime
+
+"""An ISO-8601 local time of day with no time zone, e.g. 09:00:00."""
+scalar LocalTime
+
+"""An arbitrary-precision decimal, used for monetary amounts (e.g. Invoice.totalAmount, Medication.unitPrice)."""
+scalar BigDecimal
+
+type Query {
+    _empty: String
+}
+
+type Mutation {
+    _empty: String
+}
