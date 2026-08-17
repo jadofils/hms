@@ -55,19 +55,40 @@ public abstract class AbstractControllerTest {
         return json.at("/data/token").asText();
     }
 
-    /** Monotonic tie-breaker for {@link #uniqueDigits} — {@code System.nanoTime()} alone
-     *  isn't guaranteed unique between two calls a few instructions apart (its actual
-     *  clock resolution on some JVM/OS combinations is coarser than one nanosecond), and
-     *  the fixture helpers below (e.g. {@link #createPatient}/{@link #createAppointment})
-     *  now call it several times in immediate succession per test. */
+    /** Baseline captured once at class-load time — provides entropy against
+     *  unique-constrained columns (phone/username/etc.) left behind by earlier runs
+     *  (these tests hit the real DB and don't roll back), without being read again on
+     *  every call the way the old formula read {@code System.nanoTime()} per call. */
+    private static final long RUN_OFFSET = System.nanoTime();
+
+    /** Monotonic per-call counter. Combined with {@link #RUN_OFFSET} via addition (not
+     *  string concatenation — see below), {@code RUN_OFFSET + n} is itself a strictly
+     *  increasing integer sequence, so its last {@code len} digits can only repeat once
+     *  10^len calls have been made — never in one test run.
+     *
+     *  <p>The previous formula concatenated {@code Long.toString(System.nanoTime())} with
+     *  the counter as strings and took the trailing substring: reading
+     *  {@code System.nanoTime()} fresh on every call meant two calls a few instructions
+     *  apart could occasionally observe non-monotonic values (TSC drift across CPU cores
+     *  is a known issue on some Windows/JVM combinations), and — because the counter's own
+     *  string length grows over a long test run — the digit boundary between the two
+     *  concatenated parts could shift between calls, letting two genuinely different
+     *  {@code (nanoTime, counter)} pairs land on the same trailing substring. This
+     *  manifested as a real, reproducible duplicate-email 409 in
+     *  {@code DoctorControllerTest}/{@code LabOrderControllerTest} once a fixture started
+     *  calling this several times in a single method (see {@link #createDoctor}). Pure
+     *  integer addition has no such boundary to shift. */
     private static final java.util.concurrent.atomic.AtomicLong UNIQUE_SEQ = new java.util.concurrent.atomic.AtomicLong();
 
     /** A short numeric-only string, unique enough per test run to avoid colliding with
-     *  unique-constrained columns (phone/username/etc.) left behind by earlier runs —
-     *  these tests hit the real DB and don't roll back. */
+     *  unique-constrained columns (phone/username/etc.) left behind by earlier runs. */
     protected static String uniqueDigits(int len) {
-        String combined = Long.toString(System.nanoTime()) + UNIQUE_SEQ.incrementAndGet();
-        return combined.substring(combined.length() - len);
+        long value = RUN_OFFSET + UNIQUE_SEQ.incrementAndGet();
+        String digits = Long.toString(Math.abs(value));
+        if (digits.length() < len) {
+            digits = "0".repeat(len - digits.length()) + digits;
+        }
+        return digits.substring(digits.length() - len);
     }
 
     // ── Shared fixtures ──────────────────────────────────────────────────────
@@ -90,8 +111,13 @@ public abstract class AbstractControllerTest {
     }
 
     protected String createDoctor(String token) throws Exception {
+        // Every doctor must belong to at least one department (DoctorService.createDoctor
+        // enforces this) — so this fixture creates a throwaway department first, the same
+        // way it creates a throwaway patient/doctor for prescription/lab-order fixtures.
+        String departmentId = createDepartment(token);
         String body = "{\"firstName\":\"Greg\",\"lastName\":\"House\",\"specialization\":\"Diagnostics\","
-                + "\"phone\":\"" + uniqueDigits(9) + "\",\"email\":\"doctor" + uniqueDigits(6) + "@example.com\"}";
+                + "\"phone\":\"" + uniqueDigits(9) + "\",\"email\":\"doctor" + uniqueDigits(6)
+                + "@example.com\",\"departmentIds\":[\"" + departmentId + "\"]}";
         MvcResult result = mockMvc.perform(post("/api/v1/doctors")
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -99,6 +125,17 @@ public abstract class AbstractControllerTest {
                 .andExpect(status().isCreated())
                 .andReturn();
         return objectMapper.readTree(result.getResponse().getContentAsString()).at("/data/doctorId").asText();
+    }
+
+    protected String createDepartment(String token) throws Exception {
+        String body = "{\"name\":\"Test Department " + uniqueDigits(6) + "\",\"location\":\"Main Building\"}";
+        MvcResult result = mockMvc.perform(post("/api/v1/departments")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated())
+                .andReturn();
+        return objectMapper.readTree(result.getResponse().getContentAsString()).at("/data/departmentId").asText();
     }
 
     protected String createAppointment(String token) throws Exception {
