@@ -1,0 +1,80 @@
+# Doctor/Department/DoctorSchedule cluster — DoctorSchedule->Doctor, Doctor<->Department
+# many-to-many.
+
+type Doctor {
+    doctorId: ID!
+    firstName: String!
+    lastName: String!
+    specialization: String
+    phone: String
+    email: String
+    departments: [Department!]!
+}
+
+type Department {
+    departmentId: ID!
+    name: String!
+    location: String
+    phone: String
+    doctors: [Doctor!]!
+}
+
+type DoctorSchedule {
+    scheduleId: ID!
+    doctorId: ID!
+    dayOfWeek: String!
+    startTime: LocalTime!
+    endTime: LocalTime!
+    isAvailable: Boolean!
+}
+
+input DoctorInput {
+    firstName: String!
+    lastName: String!
+    specialization: String
+    phone: String
+    email: String
+    # Required (at least one id) on create, ignored on update — department membership
+    # is managed by the assignDepartment/removeDepartment mutations below. Optional
+    # here rather than [ID!]! for the same reason DoctorRequest.departmentIds isn't
+    # @NotEmpty: this one input type backs both createDoctor and updateDoctor.
+    departmentIds: [ID!]
+}
+
+input DepartmentInput {
+    name: String!
+    location: String
+    phone: String
+}
+
+input DoctorScheduleInput {
+    dayOfWeek: String!
+    startTime: LocalTime!
+    endTime: LocalTime!
+    isAvailable: Boolean
+}
+
+extend type Query {
+    doctors(page: Int! = 0, size: Int! = 20): [Doctor!]!
+    doctor(doctorId: ID!): Doctor
+    departments(page: Int! = 0, size: Int! = 20): [Department!]!
+    department(departmentId: ID!): Department
+    doctorSchedules(doctorId: ID!): [DoctorSchedule!]!
+    doctorAvailability(doctorId: ID!, day: String!, time: String!): Boolean!
+}
+
+extend type Mutation {
+    createDoctor(input: DoctorInput!): Doctor!
+    updateDoctor(doctorId: ID!, input: DoctorInput!): Doctor!
+    deleteDoctor(doctorId: ID!): Boolean!
+    assignDepartment(doctorId: ID!, departmentId: ID!): Doctor!
+    removeDepartment(doctorId: ID!, departmentId: ID!): Doctor!
+
+    createDepartment(input: DepartmentInput!): Department!
+    updateDepartment(departmentId: ID!, input: DepartmentInput!): Department!
+    deleteDepartment(departmentId: ID!): Boolean!
+
+    createDoctorSchedule(doctorId: ID!, input: DoctorScheduleInput!): DoctorSchedule!
+    updateDoctorSchedule(doctorId: ID!, scheduleId: ID!, input: DoctorScheduleInput!): DoctorSchedule!
+    deleteDoctorSchedule(doctorId: ID!, scheduleId: ID!): Boolean!
+}
