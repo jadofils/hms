@@ -1,0 +1,92 @@
+# Pharmacy cluster — one connected FK component: MedicalInventory->Medication,
+# PrescriptionItem->Prescription+Medication, Prescription->Appointment.
+
+type Medication {
+    medicationId: ID!
+    name: String!
+    genericName: String
+    form: String
+    unitPrice: BigDecimal
+}
+
+type MedicalInventory {
+    inventoryId: ID!
+    medication: Medication!
+    batchNumber: String
+    expiryDate: Date!
+    quantityInStock: Int!
+    reorderLevel: Int!
+    supplier: String
+}
+
+type Prescription {
+    prescriptionId: ID!
+    appointment: Appointment!
+    dateIssued: Date!
+    items: [PrescriptionItem!]!
+}
+
+type PrescriptionItem {
+    itemId: ID!
+    prescriptionId: ID!
+    medication: Medication!
+    dosage: String
+    quantity: Int!
+    instructions: String
+}
+
+input MedicationInput {
+    name: String!
+    genericName: String
+    form: String
+    unitPrice: BigDecimal
+}
+
+input MedicalInventoryInput {
+    medicationId: ID!
+    batchNumber: String
+    expiryDate: Date!
+    quantityInStock: Int
+    reorderLevel: Int
+    supplier: String
+}
+
+input PrescriptionInput {
+    appointmentId: ID!
+    dateIssued: Date
+}
+
+input PrescriptionItemInput {
+    medicationId: ID!
+    dosage: String
+    quantity: Int!
+    instructions: String
+}
+
+extend type Query {
+    medications(page: Int! = 0, size: Int! = 20): [Medication!]!
+    medication(medicationId: ID!): Medication
+    inventoryRecords(page: Int! = 0, size: Int! = 20): [MedicalInventory!]!
+    inventoryRecord(inventoryId: ID!): MedicalInventory
+    prescriptions(page: Int! = 0, size: Int! = 20): [Prescription!]!
+    prescription(prescriptionId: ID!): Prescription
+    prescriptionItems(prescriptionId: ID!): [PrescriptionItem!]!
+}
+
+extend type Mutation {
+    createMedication(input: MedicationInput!): Medication!
+    updateMedication(medicationId: ID!, input: MedicationInput!): Medication!
+    deleteMedication(medicationId: ID!): Boolean!
+
+    createInventoryRecord(input: MedicalInventoryInput!): MedicalInventory!
+    updateInventoryRecord(inventoryId: ID!, input: MedicalInventoryInput!): MedicalInventory!
+    deleteInventoryRecord(inventoryId: ID!): Boolean!
+
+    createPrescription(input: PrescriptionInput!): Prescription!
+    updatePrescription(prescriptionId: ID!, input: PrescriptionInput!): Prescription!
+    deletePrescription(prescriptionId: ID!): Boolean!
+
+    createPrescriptionItem(prescriptionId: ID!, input: PrescriptionItemInput!): PrescriptionItem!
+    updatePrescriptionItem(prescriptionId: ID!, itemId: ID!, input: PrescriptionItemInput!): PrescriptionItem!
+    deletePrescriptionItem(prescriptionId: ID!, itemId: ID!): Boolean!
+}
