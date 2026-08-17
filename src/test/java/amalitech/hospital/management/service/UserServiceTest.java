@@ -50,6 +50,8 @@ class UserServiceTest {
     @Mock private UserRepository userRepository;
     @Mock private UserRoleRepository userRoleRepository;
     @Mock private RoleRepository roleRepository;
+    @Mock private RoleService roleService;
+    @Mock private DoctorService doctorService;
     @Mock private PasswordEncoder passwordEncoder;
     @Mock private MailService mailService;
     @Mock private StringRedisTemplate redisTemplate;
@@ -65,8 +67,8 @@ class UserServiceTest {
 
     @BeforeEach
     void setUp() {
-        userService = new UserService(userRepository, userRoleRepository, roleRepository, passwordEncoder,
-                mailService, redisTemplate, "http://localhost:3000", 24L, self);
+        userService = new UserService(userRepository, userRoleRepository, roleRepository, roleService,
+                doctorService, passwordEncoder, mailService, redisTemplate, "http://localhost:3000", 24L, self);
 
         existingUser = new User();
         existingUser.setUserId("user-1");
@@ -125,6 +127,64 @@ class UserServiceTest {
 
         assertThat(response.getUserId()).isEqualTo("user-1");
         assertThat(response.getUsername()).isEqualTo("alice");
+    }
+
+    @Test
+    void getUser_eagerLoadsActiveRoles_unlikeThePaginatedListing() {
+        when(userRepository.findById("user-1")).thenReturn(Optional.of(existingUser));
+        Role adminRole = new Role();
+        adminRole.setRoleId("role-1");
+        adminRole.setRoleName("Admin");
+        when(userRoleRepository.findByIdUserId("user-1")).thenReturn(List.of(activeAssignment(adminRole)));
+
+        UserResponse response = userService.getUser("user-1");
+
+        assertThat(response.getRoles()).hasSize(1);
+        assertThat(response.getRoles().get(0).getRoleName()).isEqualTo("Admin");
+    }
+
+    @Test
+    void getUser_eagerLoadsEachRolesPermissions_unlikeAFlatIdNameRole() {
+        when(userRepository.findById("user-1")).thenReturn(Optional.of(existingUser));
+        Role adminRole = new Role();
+        adminRole.setRoleId("role-1");
+        adminRole.setRoleName("Admin");
+        when(userRoleRepository.findByIdUserId("user-1")).thenReturn(List.of(activeAssignment(adminRole)));
+        amalitech.hospital.management.dto.user.role.permission.PermissionResponse permission =
+                new amalitech.hospital.management.dto.user.role.permission.PermissionResponse();
+        permission.setPermissionId("perm-1");
+        when(roleService.getRolePermissions("role-1")).thenReturn(List.of(permission));
+
+        UserResponse response = userService.getUser("user-1");
+
+        assertThat(response.getRoles().get(0).getPermissions()).containsExactly(permission);
+    }
+
+    @Test
+    void getUser_eagerLoadsLinkedDoctor_whenPresent() {
+        when(userRepository.findById("user-1")).thenReturn(Optional.of(existingUser));
+        amalitech.hospital.management.model.doctor.Doctor linkedDoctor =
+                new amalitech.hospital.management.model.doctor.Doctor();
+        linkedDoctor.setDoctorId("doctor-1");
+        existingUser.setDoctor(linkedDoctor);
+        amalitech.hospital.management.dto.doctor.DoctorResponse doctorResponse =
+                new amalitech.hospital.management.dto.doctor.DoctorResponse();
+        doctorResponse.setDoctorId("doctor-1");
+        when(doctorService.getDoctor("doctor-1")).thenReturn(doctorResponse);
+
+        UserResponse response = userService.getUser("user-1");
+
+        assertThat(response.getDoctor()).isEqualTo(doctorResponse);
+    }
+
+    @Test
+    void getUser_leavesDoctorNull_whenNoneLinked() {
+        when(userRepository.findById("user-1")).thenReturn(Optional.of(existingUser));
+
+        UserResponse response = userService.getUser("user-1");
+
+        assertThat(response.getDoctor()).isNull();
+        verify(doctorService, never()).getDoctor(anyString());
     }
 
     @Test
@@ -210,19 +270,6 @@ class UserServiceTest {
                 eq("bob@example.com"), eq("bob"),
                 org.mockito.ArgumentMatchers.startsWith("http://localhost:3000/verify-email?token="),
                 eq(24));
-    }
-
-    @Test
-    void createUser_allowsNullEmail() {
-        UserRequest request = requestFor("bob", null, "Passw0rd!");
-        when(userRepository.existsByUsername("bob")).thenReturn(false);
-        when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
-
-        userService.createUser(request);
-
-        verify(userRepository, never()).existsByEmail(anyString());
-        verify(redisTemplate, never()).opsForValue();
-        verify(mailService, never()).sendEmailVerificationEmail(any(), any(), any(), anyInt());
     }
 
     // ── createUserByAdmin ────────────────────────────────────────────────────

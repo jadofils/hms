@@ -4,6 +4,8 @@ import amalitech.hospital.management.aop.EventBus;
 import amalitech.hospital.management.dto.patient.AppointmentRequest;
 import amalitech.hospital.management.dto.patient.AppointmentResponse;
 import amalitech.hospital.management.enums.AppointmentStatus;
+import amalitech.hospital.management.enums.Gender;
+import amalitech.hospital.management.enums.PatientStatus;
 import amalitech.hospital.management.event.AppointmentCreatedEvent;
 import amalitech.hospital.management.exception.runtime.BadRequestException;
 import amalitech.hospital.management.exception.runtime.NotFoundException;
@@ -62,6 +64,8 @@ class AppointmentServiceTest {
         existingPatient.setPatientId("patient-1");
         existingPatient.setFirstName("Alice");
         existingPatient.setLastName("Doe");
+        existingPatient.setGender(Gender.F);
+        existingPatient.setStatus(PatientStatus.ACTIVE);
 
         existingDoctor = new Doctor();
         existingDoctor.setDoctorId("doctor-1");
@@ -162,6 +166,10 @@ class AppointmentServiceTest {
         assertThat(response.getAppointmentId()).isEqualTo("appt-1");
         assertThat(response.getPatientName()).isEqualTo("Alice Doe");
         assertThat(response.getStatus()).isEqualTo("scheduled");
+        // Nested alongside (not instead of) the flattened patientName/doctorName above.
+        assertThat(response.getPatient().getPatientId()).isEqualTo("patient-1");
+        assertThat(response.getPatient().getGender()).isEqualTo("F");
+        assertThat(response.getDoctor().getDoctorId()).isEqualTo("doctor-1");
     }
 
     @Test

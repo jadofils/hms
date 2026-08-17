@@ -36,9 +36,15 @@ public class DepartmentService {
         return new PagedModel<>(departmentRepository.findAll(pageable).map(this::toResponse));
     }
 
+    /** Not populated by {@link #getDepartments} or by create/update — only by this
+     *  single-item lookup, same convention as {@code DoctorService.getDoctor}. Reuses
+     *  {@link #getDepartmentDoctors}, the same method the dedicated
+     *  {@code GET /departments/{id}/doctors} sub-resource endpoint already calls. */
     @Cacheable(value = "departments", key = "#departmentId")
     public DepartmentResponse getDepartment(String departmentId) {
-        return toResponse(findDepartmentOrThrow(departmentId));
+        DepartmentResponse response = toResponse(findDepartmentOrThrow(departmentId));
+        response.setDoctors(getDepartmentDoctors(departmentId));
+        return response;
     }
 
     @Transactional

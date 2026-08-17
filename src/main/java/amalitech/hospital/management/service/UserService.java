@@ -4,6 +4,7 @@ import amalitech.hospital.management.annotation.FindUserData;
 import amalitech.hospital.management.dto.user.AdminCreateUserRequest;
 import amalitech.hospital.management.dto.user.UserRequest;
 import amalitech.hospital.management.dto.user.UserResponse;
+import amalitech.hospital.management.dto.doctor.DoctorResponse;
 import amalitech.hospital.management.dto.user.role.RoleResponse;
 import amalitech.hospital.management.exception.runtime.ConflictException;
 import amalitech.hospital.management.exception.runtime.NotFoundException;
@@ -55,6 +56,13 @@ public class UserService {
     private final UserRepository userRepository;
     private final UserRoleRepository userRoleRepository;
     private final RoleRepository roleRepository;
+    // Reused (not duplicated) for eager-loading — RoleService.getRolePermissions gives
+    // getUserRoles' RoleResponse objects their permissions, and DoctorService.getDoctor
+    // gives getUser's linked-doctor object its departments too, the exact same fully
+    // eager-loaded shape either service's own getById endpoint would return. Neither
+    // service depends back on UserService, so this creates no circular dependency.
+    private final RoleService roleService;
+    private final DoctorService doctorService;
     private final PasswordEncoder passwordEncoder;
     private final MailService mailService;
     private final StringRedisTemplate redisTemplate;
@@ -121,7 +129,13 @@ public class UserService {
 
     @Cacheable(value = "users", key = "#userId")
     public UserResponse getUser(String userId) {
-        return toResponse(findUserOrThrow(userId));
+        User user = findUserOrThrow(userId);
+        UserResponse response = toResponse(user);
+        response.setRoles(getUserRoles(userId));
+        if (user.getDoctor() != null) {
+            response.setDoctor(doctorService.getDoctor(user.getDoctor().getDoctorId()));
+        }
+        return response;
     }
 
     @Transactional
@@ -129,7 +143,7 @@ public class UserService {
         if (userRepository.existsByUsername(request.getUsername())) {
             throw new ConflictException("Username '" + request.getUsername() + "' is already taken");
         }
-        if (request.getEmail() != null && userRepository.existsByEmail(request.getEmail())) {
+        if (userRepository.existsByEmail(request.getEmail())) {
             throw new ConflictException("Email '" + request.getEmail() + "' is already registered");
         }
 
@@ -143,13 +157,9 @@ public class UserService {
         user.setUpdatedAt(now);
         UserResponse response = toResponse(userRepository.save(user));
 
-        // Registration can't require an email (see the null-guarded existsByEmail check
-        // above), so this is skipped rather than sent to a null address — and, per
-        // AuthService.login's gate, an account with no email is exempt from needing
-        // email verification at all (there's nothing to verify).
-        if (user.getEmail() != null) {
-            sendVerificationEmail(user);
-        }
+        // Email is mandatory (see UserRequest), so every self-registration always sends
+        // the verification link — AuthService.login's gate applies unconditionally now.
+        sendVerificationEmail(user);
 
         return response;
     }
@@ -243,8 +253,7 @@ public class UserService {
                 && userRepository.existsByUsername(request.getUsername())) {
             throw new ConflictException("Username '" + request.getUsername() + "' is already taken");
         }
-        if (request.getEmail() != null && !request.getEmail().equals(user.getEmail())
-                && userRepository.existsByEmail(request.getEmail())) {
+        if (!request.getEmail().equals(user.getEmail()) && userRepository.existsByEmail(request.getEmail())) {
             throw new ConflictException("Email '" + request.getEmail() + "' is already registered");
         }
 
@@ -335,10 +344,18 @@ public class UserService {
         return response;
     }
 
+    /**
+     * Eager-loads {@code description}/{@code permissions} too, not just id/name — reuses
+     * {@code RoleService.getRolePermissions} rather than a second copy of that query, so a
+     * user's roles come back exactly as deep as {@code RoleService.getRole} would return
+     * each one on its own.
+     */
     private RoleResponse toRoleResponse(Role role) {
         RoleResponse response = new RoleResponse();
         response.setRoleId(role.getRoleId());
         response.setRoleName(role.getRoleName());
+        response.setDescription(role.getDescription());
+        response.setPermissions(roleService.getRolePermissions(role.getRoleId()));
         return response;
     }
 }

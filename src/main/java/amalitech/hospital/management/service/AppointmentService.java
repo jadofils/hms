@@ -2,8 +2,10 @@ package amalitech.hospital.management.service;
 
 import amalitech.hospital.management.annotation.FindUserData;
 import amalitech.hospital.management.aop.EventBus;
+import amalitech.hospital.management.dto.doctor.DoctorResponse;
 import amalitech.hospital.management.dto.patient.AppointmentRequest;
 import amalitech.hospital.management.dto.patient.AppointmentResponse;
+import amalitech.hospital.management.dto.patient.PatientResponse;
 import amalitech.hospital.management.enums.AppointmentStatus;
 import amalitech.hospital.management.event.AppointmentCreatedEvent;
 import amalitech.hospital.management.exception.runtime.BadRequestException;
@@ -102,9 +104,19 @@ public class AppointmentService {
         throw new IllegalStateException("FindUserDataAspect did not intercept this call");
     }
 
+    /** Not populated by {@link #getAppointments} or by create/update — only by this
+     *  single-item lookup, same convention as {@code DoctorService.getDoctor}. Nests the
+     *  full {@code patient}/{@code doctor} objects (one level deep — neither is itself
+     *  further eager-loaded, to avoid dragging in e.g. every other appointment that same
+     *  patient has) alongside the existing flattened {@code patientName}/{@code doctorName}
+     *  scalars, which stay exactly as before. */
     @Cacheable(value = "appointments", key = "#appointmentId")
     public AppointmentResponse getAppointment(String appointmentId) {
-        return toResponse(findAppointmentOrThrow(appointmentId));
+        Appointment appointment = findAppointmentOrThrow(appointmentId);
+        AppointmentResponse response = toResponse(appointment);
+        response.setPatient(toPatientResponse(appointment.getPatient()));
+        response.setDoctor(toDoctorResponse(appointment.getDoctor()));
+        return response;
     }
 
     @Transactional
@@ -212,6 +224,36 @@ public class AppointmentService {
         response.setAppointmentDate(appointment.getAppointmentDate());
         response.setStatus(appointment.getStatus().getDbValue());
         response.setReason(appointment.getReason());
+        return response;
+    }
+
+    // ── Eager-loaded related data (getAppointment only) ─────────────────────────
+    // Deliberately one level deep only — neither nested object populates its own
+    // departments/roles/etc., so looking up one appointment never drags in a patient's
+    // or doctor's entire other history.
+
+    private PatientResponse toPatientResponse(Patient patient) {
+        PatientResponse response = new PatientResponse();
+        response.setPatientId(patient.getPatientId());
+        response.setFirstName(patient.getFirstName());
+        response.setLastName(patient.getLastName());
+        response.setDob(patient.getDob());
+        response.setGender(patient.getGender().getDbValue());
+        response.setPhone(patient.getPhone());
+        response.setEmail(patient.getEmail());
+        response.setAddress(patient.getAddress());
+        response.setStatus(patient.getStatus().getDbValue());
+        return response;
+    }
+
+    private DoctorResponse toDoctorResponse(Doctor doctor) {
+        DoctorResponse response = new DoctorResponse();
+        response.setDoctorId(doctor.getDoctorId());
+        response.setFirstName(doctor.getFirstName());
+        response.setLastName(doctor.getLastName());
+        response.setSpecialization(doctor.getSpecialization());
+        response.setPhone(doctor.getPhone());
+        response.setEmail(doctor.getEmail());
         return response;
     }
 }

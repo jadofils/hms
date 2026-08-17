@@ -2,13 +2,16 @@ package amalitech.hospital.management.service;
 
 import amalitech.hospital.management.dto.lab.LabOrderRequest;
 import amalitech.hospital.management.dto.lab.LabOrderResponse;
+import amalitech.hospital.management.dto.lab.LabResultResponse;
 import amalitech.hospital.management.enums.LabOrderStatus;
 import amalitech.hospital.management.exception.runtime.BadRequestException;
 import amalitech.hospital.management.exception.runtime.NotFoundException;
 import amalitech.hospital.management.model.doctor.Doctor;
+import amalitech.hospital.management.model.lab.LabResult;
 import amalitech.hospital.management.model.patient.Appointment;
 import amalitech.hospital.management.model.lab.LabOrder;
 import amalitech.hospital.management.repository.doctor.DoctorRepository;
+import amalitech.hospital.management.repository.lab.LabResultRepository;
 import amalitech.hospital.management.repository.patient.AppointmentRepository;
 import amalitech.hospital.management.repository.lab.LabOrderRepository;
 import lombok.RequiredArgsConstructor;
@@ -37,14 +40,19 @@ public class LabOrderService {
     private final LabOrderRepository labOrderRepository;
     private final AppointmentRepository appointmentRepository;
     private final DoctorRepository doctorRepository;
+    private final LabResultRepository labResultRepository;
 
     public PagedModel<LabOrderResponse> getLabOrders(Pageable pageable) {
         return new PagedModel<>(labOrderRepository.findAll(pageable).map(this::toResponse));
     }
 
+    /** Not populated by {@link #getLabOrders} or by create/update — only by this
+     *  single-item lookup, same convention as {@code DoctorService.getDoctor}. */
     @Cacheable(value = "lab-orders", key = "#labOrderId")
     public LabOrderResponse getLabOrder(String labOrderId) {
-        return toResponse(findLabOrderOrThrow(labOrderId));
+        LabOrderResponse response = toResponse(findLabOrderOrThrow(labOrderId));
+        labResultRepository.findByLabOrder_LabOrderId(labOrderId).ifPresent(result -> response.setResult(toResultResponse(result)));
+        return response;
     }
 
     @Transactional
@@ -142,6 +150,20 @@ public class LabOrderService {
         response.setTestName(labOrder.getTestName());
         response.setStatus(labOrder.getStatus().getDbValue());
         response.setOrderedAt(labOrder.getOrderedAt());
+        return response;
+    }
+
+    /** Mirrors {@code LabResultService}'s own mapping exactly (same flattened shape),
+     *  used only by {@link #getLabOrder}'s eager-loaded {@code result}. */
+    private LabResultResponse toResultResponse(LabResult result) {
+        LabResultResponse response = new LabResultResponse();
+        response.setLabResultId(result.getLabResultId());
+        response.setLabOrderId(result.getLabOrder().getLabOrderId());
+        response.setResultValue(result.getResultValue());
+        response.setUnit(result.getUnit());
+        response.setReferenceRange(result.getReferenceRange());
+        response.setIsAbnormal(result.getIsAbnormal());
+        response.setCompletedAt(result.getCompletedAt());
         return response;
     }
 }

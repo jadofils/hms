@@ -19,6 +19,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -32,6 +33,7 @@ class PrescriptionServiceTest {
 
     @Mock private PrescriptionRepository prescriptionRepository;
     @Mock private AppointmentRepository appointmentRepository;
+    @Mock private amalitech.hospital.management.repository.pharmacy.PrescriptionItemRepository prescriptionItemRepository;
     @Mock private EventBus eventBus;
 
     private PrescriptionService prescriptionService;
@@ -41,7 +43,8 @@ class PrescriptionServiceTest {
 
     @BeforeEach
     void setUp() {
-        prescriptionService = new PrescriptionService(prescriptionRepository, appointmentRepository, eventBus);
+        prescriptionService = new PrescriptionService(prescriptionRepository, appointmentRepository,
+                prescriptionItemRepository, eventBus);
 
         Patient patient = new Patient();
         patient.setPatientId("patient-1");
@@ -74,6 +77,29 @@ class PrescriptionServiceTest {
         assertThat(response.getAppointmentId()).isEqualTo("appt-1");
         assertThat(response.getPatientName()).isEqualTo("Alice Doe");
         assertThat(response.getDoctorName()).isEqualTo("Greg House");
+    }
+
+    @Test
+    void getPrescription_eagerLoadsItems_unlikeThePaginatedListing() {
+        when(prescriptionRepository.findById("presc-1")).thenReturn(Optional.of(existingPrescription));
+        amalitech.hospital.management.model.pharmacy.PrescriptionItem item =
+                new amalitech.hospital.management.model.pharmacy.PrescriptionItem();
+        item.setItemId("item-1");
+        item.setPrescription(existingPrescription);
+        amalitech.hospital.management.model.pharmacy.Medication medication =
+                new amalitech.hospital.management.model.pharmacy.Medication();
+        medication.setMedicationId("med-1");
+        medication.setName("Amoxicillin");
+        item.setMedication(medication);
+        item.setDosage("500mg");
+        item.setQuantity(20);
+        when(prescriptionItemRepository.findByPrescription_PrescriptionIdAndDeletedAtIsNull("presc-1"))
+                .thenReturn(List.of(item));
+
+        PrescriptionResponse response = prescriptionService.getPrescription("presc-1");
+
+        assertThat(response.getItems()).hasSize(1);
+        assertThat(response.getItems().get(0).getMedicationName()).isEqualTo("Amoxicillin");
     }
 
     @Test

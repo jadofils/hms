@@ -101,6 +101,24 @@ class RoleServiceTest {
     }
 
     @Test
+    void getRole_eagerLoadsGrantedPermissions_unlikeThePaginatedListing() {
+        when(roleRepository.findById("role-1")).thenReturn(Optional.of(existingRole));
+        Permission permission = new Permission();
+        permission.setPermissionId("perm-1");
+        permission.setResource("users");
+        permission.setAction("read");
+        RolePermission grant = new RolePermission();
+        grant.setPermission(permission);
+        when(rolePermissionRepository.findByIdRoleIdAndDeletedAtIsNull("role-1")).thenReturn(List.of(grant));
+        stubSortToActuallySort();
+
+        RoleResponse response = roleService.getRole("role-1");
+
+        assertThat(response.getPermissions()).hasSize(1);
+        assertThat(response.getPermissions().get(0).getResource()).isEqualTo("users");
+    }
+
+    @Test
     void getRole_throwsNotFound_whenAbsent() {
         when(roleRepository.findById("missing")).thenReturn(Optional.empty());
 
@@ -136,6 +154,43 @@ class RoleServiceTest {
 
         assertThat(response.getRoleName()).isEqualTo("Nurse");
         assertThat(response.getDescription()).isNull();
+    }
+
+    @Test
+    void createRole_grantsEachPermission_whenPermissionIdsProvided() {
+        when(roleRepository.existsByRoleName("Nurse")).thenReturn(false);
+        Role newRole = new Role();
+        newRole.setRoleId("role-2");
+        when(roleRepository.save(any(Role.class))).thenReturn(newRole);
+        when(roleRepository.findById("role-2")).thenReturn(Optional.of(newRole));
+        Permission permission = new Permission();
+        permission.setPermissionId("perm-1");
+        when(permissionRepository.findById("perm-1")).thenReturn(Optional.of(permission));
+        when(rolePermissionRepository.findByIdRoleIdAndIdPermissionId("role-2", "perm-1"))
+                .thenReturn(Optional.empty());
+        RoleRequest request = requestFor("Nurse", null);
+        request.setPermissionIds(List.of("perm-1"));
+
+        RoleResponse response = roleService.createRole(request);
+
+        assertThat(response.getRoleId()).isEqualTo("role-2");
+        ArgumentCaptor<RolePermission> captor = ArgumentCaptor.forClass(RolePermission.class);
+        verify(rolePermissionRepository).save(captor.capture());
+        assertThat(captor.getValue().getId()).isEqualTo(idFor("role-2", "perm-1"));
+    }
+
+    @Test
+    void createRole_throwsNotFound_whenAPermissionIdDoesNotExist() {
+        when(roleRepository.existsByRoleName("Nurse")).thenReturn(false);
+        Role newRole = new Role();
+        newRole.setRoleId("role-2");
+        when(roleRepository.save(any(Role.class))).thenReturn(newRole);
+        when(roleRepository.findById("role-2")).thenReturn(Optional.of(newRole));
+        when(permissionRepository.findById("bogus-perm")).thenReturn(Optional.empty());
+        RoleRequest request = requestFor("Nurse", null);
+        request.setPermissionIds(List.of("bogus-perm"));
+
+        assertThatThrownBy(() -> roleService.createRole(request)).isInstanceOf(NotFoundException.class);
     }
 
     // ── updateRole ───────────────────────────────────────────────────────────

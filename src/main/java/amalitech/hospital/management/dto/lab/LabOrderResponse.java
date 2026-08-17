@@ -15,4 +15,9 @@ public class LabOrderResponse {
     private String testName;
     private String status;
     private LocalDateTime orderedAt;
+    /** {@code null} until a result has been recorded ({@code LabResultService.createResult})
+     *  — not populated by the paginated listing or by create/update, only by the
+     *  single-item lookup ({@code LabOrderService.getLabOrder}), same convention as
+     *  {@code DoctorResponse.departments}. */
+    private LabResultResponse result;
 }

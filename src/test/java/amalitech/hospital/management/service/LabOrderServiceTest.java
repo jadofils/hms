@@ -9,8 +9,10 @@ import amalitech.hospital.management.model.doctor.Doctor;
 import amalitech.hospital.management.model.lab.LabOrder;
 import amalitech.hospital.management.model.patient.Appointment;
 import amalitech.hospital.management.model.patient.Patient;
+import amalitech.hospital.management.model.lab.LabResult;
 import amalitech.hospital.management.repository.doctor.DoctorRepository;
 import amalitech.hospital.management.repository.lab.LabOrderRepository;
+import amalitech.hospital.management.repository.lab.LabResultRepository;
 import amalitech.hospital.management.repository.patient.AppointmentRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -34,6 +36,7 @@ class LabOrderServiceTest {
     @Mock private LabOrderRepository labOrderRepository;
     @Mock private AppointmentRepository appointmentRepository;
     @Mock private DoctorRepository doctorRepository;
+    @Mock private LabResultRepository labResultRepository;
 
     private LabOrderService labOrderService;
 
@@ -43,7 +46,8 @@ class LabOrderServiceTest {
 
     @BeforeEach
     void setUp() {
-        labOrderService = new LabOrderService(labOrderRepository, appointmentRepository, doctorRepository);
+        labOrderService = new LabOrderService(labOrderRepository, appointmentRepository, doctorRepository,
+                labResultRepository);
 
         Patient patient = new Patient();
         patient.setPatientId("patient-1");
@@ -78,6 +82,22 @@ class LabOrderServiceTest {
         assertThat(response.getPatientName()).isEqualTo("Alice Doe");
         assertThat(response.getDoctorName()).isEqualTo("Greg House");
         assertThat(response.getStatus()).isEqualTo("ordered");
+        assertThat(response.getResult()).isNull();
+    }
+
+    @Test
+    void getLabOrder_eagerLoadsResult_whenOneHasBeenRecorded() {
+        when(labOrderRepository.findById("lab-1")).thenReturn(Optional.of(existingLabOrder));
+        LabResult result = new LabResult();
+        result.setLabResultId("result-1");
+        result.setLabOrder(existingLabOrder);
+        result.setResultValue("Negative");
+        when(labResultRepository.findByLabOrder_LabOrderId("lab-1")).thenReturn(Optional.of(result));
+
+        LabOrderResponse response = labOrderService.getLabOrder("lab-1");
+
+        assertThat(response.getResult()).isNotNull();
+        assertThat(response.getResult().getResultValue()).isEqualTo("Negative");
     }
 
     @Test

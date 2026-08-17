@@ -1,13 +1,16 @@
 package amalitech.hospital.management.service;
 
 import amalitech.hospital.management.aop.EventBus;
+import amalitech.hospital.management.dto.pharmacy.PrescriptionItemResponse;
 import amalitech.hospital.management.dto.pharmacy.PrescriptionRequest;
 import amalitech.hospital.management.dto.pharmacy.PrescriptionResponse;
 import amalitech.hospital.management.event.PrescriptionCreatedEvent;
 import amalitech.hospital.management.exception.runtime.NotFoundException;
 import amalitech.hospital.management.model.patient.Appointment;
 import amalitech.hospital.management.model.pharmacy.Prescription;
+import amalitech.hospital.management.model.pharmacy.PrescriptionItem;
 import amalitech.hospital.management.repository.patient.AppointmentRepository;
+import amalitech.hospital.management.repository.pharmacy.PrescriptionItemRepository;
 import amalitech.hospital.management.repository.pharmacy.PrescriptionRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.CacheEvict;
@@ -33,15 +36,22 @@ public class PrescriptionService {
 
     private final PrescriptionRepository prescriptionRepository;
     private final AppointmentRepository appointmentRepository;
+    private final PrescriptionItemRepository prescriptionItemRepository;
     private final EventBus eventBus;
 
     public PagedModel<PrescriptionResponse> getPrescriptions(Pageable pageable) {
         return new PagedModel<>(prescriptionRepository.findAll(pageable).map(this::toResponse));
     }
 
+    /** Not populated by {@link #getPrescriptions} or by create/update — only by this
+     *  single-item lookup, same convention as {@code DoctorService.getDoctor}. */
     @Cacheable(value = "prescriptions", key = "#prescriptionId")
     public PrescriptionResponse getPrescription(String prescriptionId) {
-        return toResponse(findPrescriptionOrThrow(prescriptionId));
+        PrescriptionResponse response = toResponse(findPrescriptionOrThrow(prescriptionId));
+        response.setItems(prescriptionItemRepository
+                .findByPrescription_PrescriptionIdAndDeletedAtIsNull(prescriptionId).stream()
+                .map(this::toItemResponse).toList());
+        return response;
     }
 
     @Transactional
@@ -109,6 +119,20 @@ public class PrescriptionService {
         response.setDoctorId(appointment.getDoctor().getDoctorId());
         response.setDoctorName(appointment.getDoctor().getFirstName() + " " + appointment.getDoctor().getLastName());
         response.setDateIssued(prescription.getDateIssued());
+        return response;
+    }
+
+    /** Mirrors {@code PrescriptionItemService}'s own mapping exactly (same flattened
+     *  shape), used only by {@link #getPrescription}'s eager-loaded {@code items}. */
+    private PrescriptionItemResponse toItemResponse(PrescriptionItem item) {
+        PrescriptionItemResponse response = new PrescriptionItemResponse();
+        response.setItemId(item.getItemId());
+        response.setPrescriptionId(item.getPrescription().getPrescriptionId());
+        response.setMedicationId(item.getMedication().getMedicationId());
+        response.setMedicationName(item.getMedication().getName());
+        response.setDosage(item.getDosage());
+        response.setQuantity(item.getQuantity());
+        response.setInstructions(item.getInstructions());
         return response;
     }
 }
