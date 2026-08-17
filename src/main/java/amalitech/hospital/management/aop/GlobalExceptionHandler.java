@@ -10,6 +10,7 @@ import org.springframework.dao.InvalidDataAccessApiUsageException;
 import org.springframework.data.core.PropertyReferenceException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -92,6 +93,33 @@ public class GlobalExceptionHandler {
                 .map(fieldError -> fieldError.getField() + ": " + fieldError.getDefaultMessage())
                 .collect(Collectors.joining("; "));
         return buildResponse(HttpStatus.BAD_REQUEST, message.isBlank() ? "Validation failed" : message);
+    }
+
+    /**
+     * A malformed {@code @RequestBody} — invalid JSON syntax, or a value that can't
+     * convert to its target field type (e.g. {@code "dob": "not-a-date"} against a
+     * {@code LocalDate} field, or a request body that isn't valid JSON at all). This
+     * doesn't implement {@code org.springframework.web.ErrorResponse} in this Spring
+     * version — unlike most other framework exceptions this class special-cases via the
+     * catch-all below — so without an explicit handler here it fell straight through to
+     * the generic 500, hiding what was actually just a bad request.
+     *
+     * {@link HttpMessageNotReadableException#getMostSpecificCause()} gives the
+     * underlying Jackson/JDK message (e.g. the {@code DateTimeParseException}'s own
+     * text for a bad field value) rather than Jackson's own verbose wrapper message; a
+     * pure JSON-syntax error (no field-conversion failure) still carries Jackson's own
+     * "; at [Source: ...]" location suffix on that innermost cause, which is stripped
+     * below to keep every case's message equally clean.
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ErrorResponse> handleUnreadableBody(HttpMessageNotReadableException ex) {
+        log.warn("Malformed request body: {}", ex.getMessage());
+        String cause = ex.getMostSpecificCause().getMessage();
+        if (cause != null) {
+            cause = cause.split("\\n at \\[Source")[0].trim();
+        }
+        return buildResponse(HttpStatus.BAD_REQUEST,
+                "Request body could not be read: " + (cause != null && !cause.isBlank() ? cause : "invalid JSON"));
     }
 
     /** Unique-constraint/not-null violations surfaced at the DB layer — e.g. a race
