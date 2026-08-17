@@ -1,0 +1,72 @@
+# User/Role/Permission cluster — Role<->Permission via RolePermission, User<->Role via
+# UserRole. Both join tables surface as mutations (assignRole/revokeRole/grantPermission/
+# revokePermission), not their own types — matching REST, which has no
+# UserRoleController/RolePermissionController either. Permission itself is read-only —
+# a fixed, system-managed catalog (see PermissionService's Javadoc) — createRole's own
+# permissionIds input is the only way to attach permissions at creation time; grant/revoke
+# manage them afterward.
+
+type User {
+    userId: ID!
+    username: String!
+    email: String!
+    isActive: Boolean!
+    roles: [Role!]!
+}
+
+type Role {
+    roleId: ID!
+    roleName: String!
+    description: String
+    permissions: [Permission!]!
+}
+
+type Permission {
+    permissionId: ID!
+    resource: String!
+    action: String!
+}
+
+input AdminCreateUserInput {
+    username: String!
+    email: String!
+}
+
+input UserInput {
+    username: String!
+    email: String!
+    password: String!
+}
+
+input RoleInput {
+    roleName: String!
+    description: String
+    """Optional, createRole only (ignored by updateRole) — grants each of these
+    permissions to the new role in the same request."""
+    permissionIds: [ID!]
+}
+
+extend type Query {
+    users(page: Int! = 0, size: Int! = 20): [User!]!
+    user(userId: ID!): User
+    roles(page: Int! = 0, size: Int! = 20): [Role!]!
+    role(roleId: ID!): Role
+    permissions(page: Int! = 0, size: Int! = 20): [Permission!]!
+    permission(permissionId: ID!): Permission
+}
+
+extend type Mutation {
+    # Password is never supplied by the caller — a strong one is generated and emailed,
+    # same as POST /api/v1/users.
+    createUser(input: AdminCreateUserInput!): User!
+    updateUser(userId: ID!, input: UserInput!): User!
+    deleteUser(userId: ID!): Boolean!
+    assignRole(userId: ID!, roleId: ID!): User!
+    revokeRole(userId: ID!, roleId: ID!): User!
+
+    createRole(input: RoleInput!): Role!
+    updateRole(roleId: ID!, input: RoleInput!): Role!
+    deleteRole(roleId: ID!): Boolean!
+    grantPermission(roleId: ID!, permissionId: ID!): Role!
+    revokePermission(roleId: ID!, permissionId: ID!): Role!
+}
