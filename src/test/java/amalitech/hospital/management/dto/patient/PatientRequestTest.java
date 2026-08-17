@@ -7,7 +7,8 @@ import java.time.LocalDate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** Especially provokes {@code dob} — a patient's birth date must always be in the past. */
+/** Especially provokes {@code dob} — a patient's birth date must never be in the future
+ *  (today is allowed: a newborn can be registered on their own birth day). */
 class PatientRequestTest extends ValidationTestBase {
 
     private static PatientRequest valid() {
@@ -37,13 +38,12 @@ class PatientRequestTest extends ValidationTestBase {
     }
 
     @Test
-    void dob_today_isRejected() {
-        // @Past requires strictly before today — a newborn's dob is still "today", so
-        // this is the exact boundary a caller could plausibly hit; it must not slip
-        // through as "in the past".
+    void dob_today_isAccepted() {
+        // @PastOrPresent, not @Past — a newborn registered on their own birth day has
+        // dob == today, and that must not be rejected as "in the future".
         PatientRequest request = valid();
         request.setDob(LocalDate.now());
-        assertThat(hasViolationOn(request, "dob")).isTrue();
+        assertThat(hasViolationOn(request, "dob")).isFalse();
     }
 
     @Test
