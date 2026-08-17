@@ -11,6 +11,9 @@ import amalitech.hospital.management.enums.Resource;
 import amalitech.hospital.management.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
+import io.swagger.v3.oas.annotations.media.ArraySchema;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -43,6 +46,9 @@ public class UserController {
                     + "omitted or unrecognized column never errors — it falls back to `userId` "
                     + "ascending.")
     @ApiResponse(responseCode = "200", description = "Users returned")
+    @Parameter(name = "sort", in = ParameterIn.QUERY,
+            description = "Sort by property,direction. Possible properties: userId, username, email, isActive.",
+            array = @ArraySchema(schema = @Schema(type = "string")), example = "username,desc")
     @RequirePermission(resource = Resource.USERS, action = PermissionAction.READ)
     public ResponseEntity<ApiResult<PagedModel<UserResponse>>> getUsers(Pageable pageable) {
         return ResponseEntity.ok(ApiResult.of("Users retrieved", userService.getUsers(pageable)));

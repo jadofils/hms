@@ -10,6 +10,9 @@ import amalitech.hospital.management.enums.Resource;
 import amalitech.hospital.management.service.DepartmentService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
+import io.swagger.v3.oas.annotations.media.ArraySchema;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -35,8 +38,17 @@ public class DepartmentController {
     private final DepartmentService departmentService;
 
     @GetMapping
-    @Operation(summary = "List departments (paginated)")
+    @Operation(summary = "List departments (paginated, sortable)",
+            description = "Standard `?sort=property,direction` query param (e.g. `sort=name,asc`) — "
+                    + "backed directly by Spring Data JPA, so any `Department` field is sortable: "
+                    + "`departmentId`, `name`, `location`, `phone`, `createdAt`, `updatedAt`. Unlike "
+                    + "`/api/v1/users`, an unrecognized property is not validated ahead of time and "
+                    + "currently surfaces as a 400 rather than silently falling back.")
     @ApiResponse(responseCode = "200", description = "Departments returned")
+    @Parameter(name = "sort", in = ParameterIn.QUERY,
+            description = "Sort by property,direction. Possible properties: departmentId, name, "
+                    + "location, phone, createdAt, updatedAt.",
+            array = @ArraySchema(schema = @Schema(type = "string")), example = "name,asc")
     @RequirePermission(resource = Resource.DEPARTMENTS, action = PermissionAction.READ)
     public ResponseEntity<ApiResult<PagedModel<DepartmentResponse>>> getDepartments(Pageable pageable) {
         return ResponseEntity.ok(ApiResult.of("Departments retrieved", departmentService.getDepartments(pageable)));

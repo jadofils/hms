@@ -9,6 +9,9 @@ import amalitech.hospital.management.enums.Resource;
 import amalitech.hospital.management.service.PatientService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
+import io.swagger.v3.oas.annotations.media.ArraySchema;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -40,6 +43,10 @@ public class PatientController {
                     + "unrecognized column never errors — it falls back to `patientId` "
                     + "ascending. Optional `status`/`gender` query params filter the list.")
     @ApiResponse(responseCode = "200", description = "Patients returned")
+    @Parameter(name = "sort", in = ParameterIn.QUERY,
+            description = "Sort by property,direction. Possible properties: patientId, firstName, "
+                    + "lastName, dob, gender, phone, email, address, status.",
+            array = @ArraySchema(schema = @Schema(type = "string")), example = "lastName,desc")
     @RequirePermission(resource = Resource.PATIENTS, action = PermissionAction.READ)
     public ResponseEntity<ApiResult<PagedModel<PatientResponse>>> getPatients(
             Pageable pageable,

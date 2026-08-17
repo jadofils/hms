@@ -9,6 +9,9 @@ import amalitech.hospital.management.enums.Resource;
 import amalitech.hospital.management.service.AppointmentService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
+import io.swagger.v3.oas.annotations.media.ArraySchema;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -42,6 +45,11 @@ public class AppointmentController {
                     + "`appointmentId` ascending. Optional `status` query param filters "
                     + "the list.")
     @ApiResponse(responseCode = "200", description = "Appointments returned")
+    @Parameter(name = "sort", in = ParameterIn.QUERY,
+            description = "Sort by property,direction. Possible properties: appointmentId, patientId, "
+                    + "doctorId, patientFirstName, patientLastName, doctorFirstName, doctorLastName, "
+                    + "appointmentDate, status, reason.",
+            array = @ArraySchema(schema = @Schema(type = "string")), example = "appointmentDate,desc")
     @RequirePermission(resource = Resource.APPOINTMENTS, action = PermissionAction.READ)
     public ResponseEntity<ApiResult<PagedModel<AppointmentResponse>>> getAppointments(
             Pageable pageable,

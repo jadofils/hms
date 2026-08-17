@@ -9,6 +9,9 @@ import amalitech.hospital.management.enums.Resource;
 import amalitech.hospital.management.service.NotificationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
+import io.swagger.v3.oas.annotations.media.ArraySchema;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -32,8 +35,17 @@ public class NotificationController {
     private final NotificationService notificationService;
 
     @GetMapping
-    @Operation(summary = "List notifications (paginated, sortable)")
+    @Operation(summary = "List notifications (paginated, sortable)",
+            description = "Standard `?sort=property,direction` query param (e.g. `sort=createdAt,desc`) "
+                    + "— backed directly by Spring Data JPA, so any `Notification` field is sortable: "
+                    + "`notificationId`, `type`, `status`, `priority`, `readAt`, `createdAt`, `updatedAt`. "
+                    + "Unlike `/api/v1/users`, an unrecognized property is not validated ahead of time "
+                    + "and currently surfaces as a 400 rather than silently falling back.")
     @ApiResponse(responseCode = "200", description = "Notifications returned")
+    @Parameter(name = "sort", in = ParameterIn.QUERY,
+            description = "Sort by property,direction. Possible properties: notificationId, type, "
+                    + "status, priority, readAt, createdAt, updatedAt.",
+            array = @ArraySchema(schema = @Schema(type = "string")), example = "createdAt,desc")
     @RequirePermission(resource = Resource.NOTIFICATIONS, action = PermissionAction.READ)
     public ResponseEntity<ApiResult<PagedModel<NotificationResponse>>> getNotifications(Pageable pageable) {
         return ResponseEntity.ok(ApiResult.of("Notifications retrieved", notificationService.getNotifications(pageable)));

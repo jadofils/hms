@@ -9,6 +9,9 @@ import amalitech.hospital.management.enums.Resource;
 import amalitech.hospital.management.service.InvoiceService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
+import io.swagger.v3.oas.annotations.media.ArraySchema;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -32,8 +35,17 @@ public class InvoiceController {
     private final InvoiceService invoiceService;
 
     @GetMapping
-    @Operation(summary = "List invoices (paginated, sortable)")
+    @Operation(summary = "List invoices (paginated, sortable)",
+            description = "Standard `?sort=property,direction` query param (e.g. `sort=issuedAt,desc`) "
+                    + "— backed directly by Spring Data JPA, so any `Invoice` field is sortable: "
+                    + "`invoiceId`, `totalAmount`, `paymentStatus`, `issuedAt`, `updatedAt`. Unlike "
+                    + "`/api/v1/users`, an unrecognized property is not validated ahead of time and "
+                    + "currently surfaces as a 400 rather than silently falling back.")
     @ApiResponse(responseCode = "200", description = "Invoices returned")
+    @Parameter(name = "sort", in = ParameterIn.QUERY,
+            description = "Sort by property,direction. Possible properties: invoiceId, totalAmount, "
+                    + "paymentStatus, issuedAt, updatedAt.",
+            array = @ArraySchema(schema = @Schema(type = "string")), example = "issuedAt,desc")
     @RequirePermission(resource = Resource.INVOICES, action = PermissionAction.READ)
     public ResponseEntity<ApiResult<PagedModel<InvoiceResponse>>> getInvoices(Pageable pageable) {
         return ResponseEntity.ok(ApiResult.of("Invoices retrieved", invoiceService.getInvoices(pageable)));

@@ -9,6 +9,9 @@ import amalitech.hospital.management.enums.Resource;
 import amalitech.hospital.management.service.MedicalInventoryService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
+import io.swagger.v3.oas.annotations.media.ArraySchema;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -32,8 +35,18 @@ public class MedicalInventoryController {
     private final MedicalInventoryService medicalInventoryService;
 
     @GetMapping
-    @Operation(summary = "List inventory records (paginated, sortable)")
+    @Operation(summary = "List inventory records (paginated, sortable)",
+            description = "Standard `?sort=property,direction` query param (e.g. `sort=expiryDate,asc`) "
+                    + "— backed directly by Spring Data JPA, so any `MedicalInventory` field is "
+                    + "sortable: `inventoryId`, `batchNumber`, `expiryDate`, `quantityInStock`, "
+                    + "`reorderLevel`, `supplier`, `createdAt`, `updatedAt`. Unlike `/api/v1/users`, an "
+                    + "unrecognized property is not validated ahead of time and currently surfaces as a "
+                    + "400 rather than silently falling back.")
     @ApiResponse(responseCode = "200", description = "Inventory records returned")
+    @Parameter(name = "sort", in = ParameterIn.QUERY,
+            description = "Sort by property,direction. Possible properties: inventoryId, batchNumber, "
+                    + "expiryDate, quantityInStock, reorderLevel, supplier, createdAt, updatedAt.",
+            array = @ArraySchema(schema = @Schema(type = "string")), example = "expiryDate,asc")
     @RequirePermission(resource = Resource.MEDICAL_INVENTORY, action = PermissionAction.READ)
     public ResponseEntity<ApiResult<PagedModel<MedicalInventoryResponse>>> getInventoryRecords(Pageable pageable) {
         return ResponseEntity.ok(ApiResult.of("Inventory records retrieved",
