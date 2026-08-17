@@ -21,10 +21,17 @@ class UserRequestTest extends ValidationTestBase {
     }
 
     @Test
-    void emailIsOptional() {
+    void nullEmail_isRejected() {
         UserRequest request = valid();
         request.setEmail(null);
-        assertThat(validate(request)).isEmpty();
+        assertThat(hasViolationOn(request, "email")).isTrue();
+    }
+
+    @Test
+    void blankEmail_isRejected() {
+        UserRequest request = valid();
+        request.setEmail("   ");
+        assertThat(hasViolationOn(request, "email")).isTrue();
     }
 
     @Test

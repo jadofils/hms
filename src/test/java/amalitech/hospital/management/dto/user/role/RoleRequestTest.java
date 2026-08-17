@@ -3,6 +3,8 @@ package amalitech.hospital.management.dto.user.role;
 import amalitech.hospital.management.dto.ValidationTestBase;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 class RoleRequestTest extends ValidationTestBase {
@@ -70,5 +72,26 @@ class RoleRequestTest extends ValidationTestBase {
         RoleRequest request = valid();
         request.setDescription("a".repeat(256));
         assertThat(hasViolationOn(request, "description")).isTrue();
+    }
+
+    @Test
+    void permissionIdsIsOptional() {
+        RoleRequest request = valid();
+        request.setPermissionIds(null);
+        assertThat(validate(request)).isEmpty();
+    }
+
+    @Test
+    void permissionIds_acceptsARealList() {
+        RoleRequest request = valid();
+        request.setPermissionIds(List.of("perm-1", "perm-2"));
+        assertThat(validate(request)).isEmpty();
+    }
+
+    @Test
+    void blankPermissionId_isRejected() {
+        RoleRequest request = valid();
+        request.setPermissionIds(List.of("perm-1", " "));
+        assertThat(hasViolationOn(request, "permissionIds[1].<list element>")).isTrue();
     }
 }
