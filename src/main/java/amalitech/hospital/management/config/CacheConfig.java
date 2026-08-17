@@ -1,6 +1,8 @@
 package amalitech.hospital.management.config;
 
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.jsontype.impl.LaissezFaireSubTypeValidator;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.context.annotation.Bean;
@@ -18,7 +20,9 @@ import java.time.Duration;
  *
  * Values are JSON-serialized rather than JDK-serialized — the entities/DTOs cached here
  * don't implement {@code Serializable}, and JSON is what you actually want if you ever
- * inspect the cache directly (e.g. via redis-cli).
+ * inspect the cache directly (e.g. via redis-cli) — each entry does carry one extra
+ * {@code @class} property alongside the real fields (see the mapper setup below for why),
+ * but the payload otherwise reads as plain JSON.
  *
  * {@code GenericJackson2JsonRedisSerializer} is {@code @Deprecated(forRemoval = true)}
  * as of spring-data-redis 4.0, in favor of {@code GenericJacksonJsonRedisSerializer} —
@@ -49,11 +53,34 @@ public class CacheConfig {
      * the moment a real cache write was actually exercised — only ever discovered via a
      * real HTTP integration test, since every prior service-layer unit test mocks the
      * repository and never touches Redis at all.
+     *
+     * <p>{@code activateDefaultTyping} embeds that {@code @class} property mentioned
+     * above — required for a cache HIT to actually work: Spring's cache abstraction
+     * reads a hit back through {@code GenericJackson2JsonRedisSerializer}'s type-
+     * <em>unaware</em> {@code deserialize(byte[])} overload (not the type-aware one), so
+     * without embedded type info, every cache hit silently deserialized into a generic
+     * {@code LinkedHashMap} instead of the real DTO — passing a custom {@code ObjectMapper}
+     * into the serializer's constructor does <em>not</em> get this activated automatically
+     * the way its own no-arg constructor's internal mapper does. This was a real, latent
+     * bug that had gone unnoticed: every prior caller happened to just pass the cached
+     * value straight through to Jackson for HTTP serialization with no locally-typed
+     * variable anywhere in between, so Java's generic type erasure meant no
+     * {@code checkcast} ever actually ran, and a {@code LinkedHashMap} produces identical
+     * JSON output to the real DTO anyway — {@code AuthController.me} binding the cached
+     * {@code UserService.getUser} result to a locally-typed {@code UserResponse} variable
+     * was the first call site to force a real cast, which is what surfaced this as a
+     * {@code ClassCastException}. {@link LaissezFaireSubTypeValidator} is Jackson's
+     * permissive built-in — appropriate here since this cache only ever round-trips this
+     * application's own trusted output, never externally-supplied data.
      */
     @Bean
     @SuppressWarnings({"java:S1874", "removal"})
     public RedisCacheConfiguration cacheConfiguration() {
         ObjectMapper cacheMapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        cacheMapper.activateDefaultTyping(
+                LaissezFaireSubTypeValidator.instance,
+                ObjectMapper.DefaultTyping.NON_FINAL,
+                JsonTypeInfo.As.PROPERTY);
         return RedisCacheConfiguration.defaultCacheConfig()
                 .entryTtl(Duration.ofMinutes(10))
                 .disableCachingNullValues()
