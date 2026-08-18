@@ -1,4 +1,6 @@
 spring:
+  application:
+    name: hms
   # dev/test/prod-specific overrides live in application-{profile}.yaml (ddl-auto,
   # show-sql, log levels) — this file is the shared base every profile loads on top of.
   # Defaults to "dev" when SPRING_PROFILES_ACTIVE isn't set (local/.env-driven runs);
@@ -131,3 +133,47 @@ springdoc:
     path: /
     tags-sorter: alpha
     operations-sorter: method
+
+# Actuator — deliberately only health/info/metrics/prometheus, never the full "*". This
+# app handles patient PII and SecurityConfig currently permits every request unauthenticated
+# (see that class's own Javadoc) — actuator endpoints inherit that, so env/beans/configprops/
+# heapdump/threaddump (anything that could leak a secret, a bean graph, or a full heap) stay
+# off; the four exposed here are read-only operational signal with nothing sensitive in them.
+# Revisit this list together with SecurityConfig's permitAll() the day either one is locked
+# down — they're the same underlying gap, not two separate decisions.
+management:
+  info:
+    # Off by default in this Spring Boot version — without it, the info.app.* block
+    # below (and build-info.properties' own build.* keys) never actually surfaces at
+    # /actuator/info, regardless of the exposure.include list above.
+    env:
+      enabled: true
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      # Which dependency (DB/Redis, both auto-detected — see HealthIndicator autoconfig,
+      # no bespoke code needed) is actually down, not just the aggregate UP/DOWN status.
+      # Overridden to "always" in dev (application-dev.yaml) for local convenience.
+      show-details: when-authorized
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        # Buckets for the built-in per-endpoint HTTP timer AND this project's own
+        # @Timed("hms.rest.requests")/@Timed("hms.graphql.requests") (see MetricsConfig) —
+        # without this a Prometheus histogram_quantile() query has nothing to bucket into.
+        http.server.requests: true
+        hms.rest.requests: true
+        hms.graphql.requests: true
+
+# Actuator's /actuator/info — build.* comes from spring-boot-maven-plugin's build-info
+# goal (target/classes/META-INF/build-info.properties), picked up automatically; app.*
+# below is this project's own addition on top of that.
+info:
+  app:
+    name: ${spring.application.name}
+    description: Hospital Management System — REST + GraphQL backend
