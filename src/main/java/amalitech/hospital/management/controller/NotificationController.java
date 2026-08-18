@@ -21,6 +21,7 @@ import org.springframework.data.web.PagedModel;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import io.micrometer.core.annotation.Timed;
 
 /**
  * Notification management — backed by {@link NotificationService}. See that class for
@@ -29,26 +30,32 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/v1/notifications")
 @Tag(name = "Notifications", description = "In-app notifications")
+@Timed(value = "hms.rest.requests", extraTags = {"layer", "rest"}, percentiles = {0.5, 0.95, 0.99})
 @RequiredArgsConstructor
 public class NotificationController {
 
     private final NotificationService notificationService;
 
     @GetMapping
-    @Operation(summary = "List notifications (paginated, sortable)",
+    @Operation(summary = "List notifications (paginated, sortable, filterable)",
             description = "Standard `?sort=property,direction` query param (e.g. `sort=createdAt,desc`) "
                     + "— backed directly by Spring Data JPA, so any `Notification` field is sortable: "
                     + "`notificationId`, `type`, `status`, `priority`, `readAt`, `createdAt`, `updatedAt`. "
                     + "Unlike `/api/v1/users`, an unrecognized property is not validated ahead of time "
-                    + "and currently surfaces as a 400 rather than silently falling back.")
+                    + "and currently surfaces as a 400 rather than silently falling back. Optional "
+                    + "`unread` query param filters to only unread (`true`) or only already-read "
+                    + "(`false`) notifications — omitted returns every notification.")
     @ApiResponse(responseCode = "200", description = "Notifications returned")
     @Parameter(name = "sort", in = ParameterIn.QUERY,
             description = "Sort by property,direction. Possible properties: notificationId, type, "
                     + "status, priority, readAt, createdAt, updatedAt.",
             array = @ArraySchema(schema = @Schema(type = "string")), example = "createdAt,desc")
     @RequirePermission(resource = Resource.NOTIFICATIONS, action = PermissionAction.READ)
-    public ResponseEntity<ApiResult<PagedModel<NotificationResponse>>> getNotifications(Pageable pageable) {
-        return ResponseEntity.ok(ApiResult.of("Notifications retrieved", notificationService.getNotifications(pageable)));
+    public ResponseEntity<ApiResult<PagedModel<NotificationResponse>>> getNotifications(
+            Pageable pageable,
+            @Parameter(description = "Filter to only unread (true) or only already-read (false) notifications")
+            @RequestParam(required = false) Boolean unread) {
+        return ResponseEntity.ok(ApiResult.of("Notifications retrieved", notificationService.getNotifications(pageable, unread)));
     }
 
     @GetMapping("/{notificationId}")
