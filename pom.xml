@@ -11,8 +11,8 @@
 	<groupId>amalitech.hospital</groupId>
 	<artifactId>hms</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
-	<name/>
-	<description/>
+	<name>Hospital Management System</name>
+	<description>REST + GraphQL backend for hospital administration — patients, doctors, appointments, pharmacy, lab, and finance.</description>
 	<url/>
 	<licenses>
 		<license/>
@@ -168,6 +168,13 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
+        <!-- Exposes /actuator/prometheus (Prometheus text-exposition format) alongside the
+             existing /actuator/metrics — the actuator starter above brings in Micrometer's
+             core API but no concrete registry that scrapes in that format without this. -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
     </dependencies>
 
 
@@ -217,6 +224,16 @@
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
+				<executions>
+					<!-- Generates target/classes/META-INF/build-info.properties (name, version,
+					     build time) — Actuator's /actuator/info endpoint reads this file
+					     automatically once present; no extra code needed on the app side. -->
+					<execution>
+						<goals>
+							<goal>build-info</goal>
+						</goals>
+					</execution>
+				</executions>
 			</plugin>
 			<plugin>
 				<!-- Instruments test runs (prepare-agent, bound to the default
@@ -226,7 +243,7 @@
 				     points sonar:sonar at the XML report this produces. -->
 				<groupId>org.jacoco</groupId>
 				<artifactId>jacoco-maven-plugin</artifactId>
-				<version>0.8.13</version>
+				<version>0.8.15</version>
 				<configuration>
 					<excludes>
 						<!-- Boilerplate entry point — testing main() would mean booting a second
