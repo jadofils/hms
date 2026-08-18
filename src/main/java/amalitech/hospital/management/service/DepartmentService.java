@@ -1,5 +1,7 @@
 package amalitech.hospital.management.service;
 
+import amalitech.hospital.management.annotation.SqlQueryBuilder;
+import amalitech.hospital.management.dto.doctor.DepartmentDoctorCountResponse;
 import amalitech.hospital.management.dto.doctor.DepartmentRequest;
 import amalitech.hospital.management.dto.doctor.DepartmentResponse;
 import amalitech.hospital.management.dto.doctor.DoctorResponse;
@@ -12,12 +14,14 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.CachePut;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PagedModel;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 
 /**
@@ -32,8 +36,47 @@ public class DepartmentService {
 
     private final DepartmentRepository departmentRepository;
 
+    /**
+     * Self-injected proxy reference, used only to call this class's own
+     * {@code @SqlQueryBuilder}-annotated method through the Spring AOP proxy — see
+     * {@link #findDepartmentsWithDoctorCounts}. {@code @Lazy} breaks the circular
+     * dependency this creates at bean-creation time.
+     */
+    @Lazy
+    private final DepartmentService self;
+
     public PagedModel<DepartmentResponse> getDepartments(Pageable pageable) {
         return new PagedModel<>(departmentRepository.findAll(pageable).map(this::toResponse));
+    }
+
+    /**
+     * Every department with at least one active doctor, plus the count — an admin
+     * staffing overview, distinct from {@link #getDepartments} (every department,
+     * staffed or not) or {@link #getDepartmentDoctors} (one department's full doctor
+     * list). Backed by a {@code GROUP BY}/{@code HAVING} native query (see
+     * {@code SqlQueryBuilderAspect}'s {@code "findDepartmentsWithDoctors"} case).
+     */
+    public List<DepartmentDoctorCountResponse> getStaffingSummary() {
+        return self.findDepartmentsWithDoctorCounts().stream()
+                .map(row -> {
+                    DepartmentDoctorCountResponse response = new DepartmentDoctorCountResponse();
+                    response.setDepartmentId((String) row[0]);
+                    response.setName((String) row[1]);
+                    response.setDoctorCount(((Number) row[2]).longValue());
+                    return response;
+                })
+                .toList();
+    }
+
+    /**
+     * AOP entry point for {@code SqlQueryBuilderAspect} — must be called via
+     * {@link #self}, never as {@code this.findDepartmentsWithDoctorCounts()}: Spring AOP
+     * proxies only intercept calls made through the proxy, so a same-class call would
+     * bypass the aspect and fall through to the body below.
+     */
+    @SqlQueryBuilder("findDepartmentsWithDoctors")
+    public List<Object[]> findDepartmentsWithDoctorCounts() {
+        throw new IllegalStateException("SqlQueryBuilderAspect did not intercept this call");
     }
 
     /** Not populated by {@link #getDepartments} or by create/update — only by this
@@ -56,7 +99,7 @@ public class DepartmentService {
             throw new ConflictException("Phone '" + request.getPhone() + "' is already registered");
         }
 
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
         Department department = new Department();
         department.setName(request.getName());
         department.setLocation(request.getLocation());
@@ -84,7 +127,7 @@ public class DepartmentService {
         department.setName(request.getName());
         department.setLocation(request.getLocation());
         department.setPhone(request.getPhone());
-        department.setUpdatedAt(LocalDateTime.now());
+        department.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
         return toResponse(departmentRepository.save(department));
     }
 
@@ -93,7 +136,7 @@ public class DepartmentService {
     public void deleteDepartment(String departmentId) {
         Department department = findDepartmentOrThrow(departmentId);
         throwIfHeldByAnyDoctor(department, "deleted");
-        department.setDeletedAt(LocalDateTime.now());
+        department.setDeletedAt(LocalDateTime.now(ZoneId.systemDefault()));
         departmentRepository.save(department);
     }
 

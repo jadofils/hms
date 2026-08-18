@@ -1,5 +1,6 @@
 package amalitech.hospital.management.service;
 
+import amalitech.hospital.management.dto.doctor.DepartmentDoctorCountResponse;
 import amalitech.hospital.management.dto.doctor.DepartmentRequest;
 import amalitech.hospital.management.dto.doctor.DepartmentResponse;
 import amalitech.hospital.management.dto.doctor.DoctorResponse;
@@ -31,6 +32,11 @@ import static org.mockito.Mockito.when;
 class DepartmentServiceTest {
 
     @Mock private DepartmentRepository departmentRepository;
+    // Stands in for the self-injected AOP proxy reference — findDepartmentsWithDoctorCounts
+    // is @SqlQueryBuilder-annotated and normally intercepted by SqlQueryBuilderAspect;
+    // mocked here at the boundary rather than exercised for real (see CLAUDE.md's Testing
+    // section).
+    @Mock private DepartmentService self;
 
     private DepartmentService departmentService;
 
@@ -38,7 +44,7 @@ class DepartmentServiceTest {
 
     @BeforeEach
     void setUp() {
-        departmentService = new DepartmentService(departmentRepository);
+        departmentService = new DepartmentService(departmentRepository, self);
 
         existingDepartment = new Department();
         existingDepartment.setDepartmentId("dept-1");
@@ -209,6 +215,28 @@ class DepartmentServiceTest {
         List<DoctorResponse> doctors = departmentService.getDepartmentDoctors("dept-1");
 
         assertThat(doctors).isEmpty();
+    }
+
+    // ── getStaffingSummary (AOP-driven native query) ────────────────────────
+
+    @Test
+    void getStaffingSummary_mapsRawRowsIntoResponses() {
+        Object[] row = {"dept-1", "Cardiology", 4L};
+        when(self.findDepartmentsWithDoctorCounts()).thenReturn(List.<Object[]>of(row));
+
+        List<DepartmentDoctorCountResponse> result = departmentService.getStaffingSummary();
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getDepartmentId()).isEqualTo("dept-1");
+        assertThat(result.get(0).getName()).isEqualTo("Cardiology");
+        assertThat(result.get(0).getDoctorCount()).isEqualTo(4L);
+    }
+
+    @Test
+    void getStaffingSummary_returnsEmptyList_whenNoDepartmentIsStaffed() {
+        when(self.findDepartmentsWithDoctorCounts()).thenReturn(List.of());
+
+        assertThat(departmentService.getStaffingSummary()).isEmpty();
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────
