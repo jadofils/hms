@@ -29,6 +29,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -89,6 +90,30 @@ class DoctorServiceTest {
         doctorService.getDoctors(PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "lastName")));
 
         verify(self).findDoctorsPage(0, 20, "lastName", "DESC");
+    }
+
+    // ── getDoctorDepartmentRoster (AOP-driven native query) ─────────────────
+
+    @Test
+    void getDoctorDepartmentRoster_mapsRawRowsIntoResponses() {
+        Object[] row = {"doctor-1", "Greg", "House", "Diagnostics"};
+        when(self.findDoctorsByDepartment()).thenReturn(List.<Object[]>of(row));
+
+        List<amalitech.hospital.management.dto.doctor.DoctorDepartmentRosterResponse> result =
+                doctorService.getDoctorDepartmentRoster();
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getDoctorId()).isEqualTo("doctor-1");
+        assertThat(result.get(0).getFirstName()).isEqualTo("Greg");
+        assertThat(result.get(0).getLastName()).isEqualTo("House");
+        assertThat(result.get(0).getDepartment()).isEqualTo("Diagnostics");
+    }
+
+    @Test
+    void getDoctorDepartmentRoster_returnsEmptyList_whenNoDoctorHasADepartment() {
+        when(self.findDoctorsByDepartment()).thenReturn(List.of());
+
+        assertThat(doctorService.getDoctorDepartmentRoster()).isEmpty();
     }
 
     // ── getDoctor ────────────────────────────────────────────────────────────
@@ -161,12 +186,16 @@ class DoctorServiceTest {
 
     @Test
     void createDoctor_throwsNotFound_whenADepartmentIdDoesNotExist() {
+        // assignDepartment is called as self.assignDepartment(...) (see createDoctor's
+        // own comment on why — not just this.assignDepartment(...)), so its own cascade
+        // is exercised by assignDepartment's own dedicated tests below, not re-verified
+        // here; this only checks createDoctor propagates a NotFoundException from it.
         DoctorRequest request = requestFor("Bob", "bob@example.com", "7654321");
         Doctor newDoctor = new Doctor();
         newDoctor.setDoctorId("doctor-2");
         when(doctorRepository.save(any(Doctor.class))).thenReturn(newDoctor);
-        when(doctorRepository.findById("doctor-2")).thenReturn(Optional.of(newDoctor));
-        when(departmentRepository.findById("dept-1")).thenReturn(Optional.empty());
+        doThrow(new NotFoundException("Department not found: dept-1"))
+                .when(self).assignDepartment("doctor-2", "dept-1");
 
         assertThatThrownBy(() -> doctorService.createDoctor(request))
                 .isInstanceOf(NotFoundException.class);
@@ -178,21 +207,14 @@ class DoctorServiceTest {
         Doctor newDoctor = new Doctor();
         newDoctor.setDoctorId("doctor-2");
         when(doctorRepository.save(any(Doctor.class))).thenReturn(newDoctor);
-        when(doctorRepository.findById("doctor-2")).thenReturn(Optional.of(newDoctor));
-        when(departmentRepository.findById("dept-1")).thenReturn(Optional.of(existingDepartment));
 
         DoctorResponse response = doctorService.createDoctor(request);
 
-        // doctorRepository.save is stubbed to a fixed pre-built entity (per the composite
-        // "generated id" workaround this mirrors from RoleServiceTest.createRole's own
-        // permissionIds test), so the response's own scalar fields aren't meaningful to
-        // assert on here — what matters is the doctorId round-trips and the department got
-        // assigned onto the actual saved-and-refetched entity.
         ArgumentCaptor<Doctor> captor = ArgumentCaptor.forClass(Doctor.class);
-        verify(doctorRepository, org.mockito.Mockito.atLeastOnce()).save(captor.capture());
-        assertThat(captor.getAllValues().get(0).getCreatedAt()).isNotNull();
+        verify(doctorRepository).save(captor.capture());
+        assertThat(captor.getValue().getCreatedAt()).isNotNull();
         assertThat(response.getDoctorId()).isEqualTo("doctor-2");
-        assertThat(newDoctor.getDepartments()).contains(existingDepartment);
+        verify(self).assignDepartment("doctor-2", "dept-1");
     }
 
     // ── updateDoctor ─────────────────────────────────────────────────────────

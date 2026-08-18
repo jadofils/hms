@@ -1,7 +1,9 @@
 package amalitech.hospital.management.service;
 
 import amalitech.hospital.management.annotation.FindUserData;
+import amalitech.hospital.management.annotation.SqlQueryBuilder;
 import amalitech.hospital.management.dto.doctor.DepartmentResponse;
+import amalitech.hospital.management.dto.doctor.DoctorDepartmentRosterResponse;
 import amalitech.hospital.management.dto.doctor.DoctorRequest;
 import amalitech.hospital.management.dto.doctor.DoctorResponse;
 import amalitech.hospital.management.exception.runtime.BadRequestException;
@@ -26,6 +28,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -104,6 +107,38 @@ public class DoctorService {
     }
 
     /**
+     * One row per doctor-department pairing (a doctor in N departments appears N
+     * times) — a flattened roster view, distinct from {@link #getDoctor} (one doctor,
+     * departments nested underneath) or {@link #getDoctors} (every doctor, no
+     * department info at all — see that method's own Javadoc for why). Backed by a
+     * joined native query (see {@code SqlQueryBuilderAspect}'s
+     * {@code "findDoctorsByDepartment"} case).
+     */
+    public List<DoctorDepartmentRosterResponse> getDoctorDepartmentRoster() {
+        return self.findDoctorsByDepartment().stream()
+                .map(row -> {
+                    DoctorDepartmentRosterResponse response = new DoctorDepartmentRosterResponse();
+                    response.setDoctorId((String) row[0]);
+                    response.setFirstName((String) row[1]);
+                    response.setLastName((String) row[2]);
+                    response.setDepartment((String) row[3]);
+                    return response;
+                })
+                .toList();
+    }
+
+    /**
+     * AOP entry point for {@code SqlQueryBuilderAspect} — must be called via
+     * {@link #self}, never as {@code this.findDoctorsByDepartment()}: Spring AOP
+     * proxies only intercept calls made through the proxy, so a same-class call would
+     * bypass the aspect and fall through to the body below.
+     */
+    @SqlQueryBuilder("findDoctorsByDepartment")
+    public List<Object[]> findDoctorsByDepartment() {
+        throw new IllegalStateException("SqlQueryBuilderAspect did not intercept this call");
+    }
+
+    /**
      * {@code request.getDepartmentIds()} must be non-empty — a doctor must belong
      * somewhere from the moment they're created (see this class's Javadoc). Each id is
      * granted via {@link #assignDepartment} in the same transaction as the save above,
@@ -124,7 +159,7 @@ public class DoctorService {
             throw new ConflictException("Phone '" + request.getPhone() + "' is already registered");
         }
 
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
         Doctor doctor = new Doctor();
         doctor.setFirstName(request.getFirstName());
         doctor.setLastName(request.getLastName());
@@ -136,7 +171,11 @@ public class DoctorService {
         Doctor saved = doctorRepository.save(doctor);
 
         for (String departmentId : request.getDepartmentIds()) {
-            assignDepartment(saved.getDoctorId(), departmentId);
+            // self.assignDepartment(...), not this.assignDepartment(...) — assignDepartment
+            // is @Transactional/@CacheEvict, and a same-class call bypasses that proxy
+            // advice too, not just the custom @FindUserData/@SqlQueryBuilder aspects this
+            // self-injected field otherwise exists for.
+            self.assignDepartment(saved.getDoctorId(), departmentId);
         }
 
         return toResponse(saved);
@@ -161,7 +200,7 @@ public class DoctorService {
         doctor.setSpecialization(request.getSpecialization());
         doctor.setPhone(request.getPhone());
         doctor.setEmail(request.getEmail());
-        doctor.setUpdatedAt(LocalDateTime.now());
+        doctor.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
         return toResponse(doctorRepository.save(doctor));
     }
 
@@ -169,7 +208,7 @@ public class DoctorService {
     @CacheEvict(value = "doctors", key = "#doctorId")
     public void deleteDoctor(String doctorId) {
         Doctor doctor = findDoctorOrThrow(doctorId);
-        doctor.setDeletedAt(LocalDateTime.now());
+        doctor.setDeletedAt(LocalDateTime.now(ZoneId.systemDefault()));
         doctorRepository.save(doctor);
     }
 
