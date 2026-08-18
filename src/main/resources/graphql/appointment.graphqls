@@ -20,7 +20,12 @@ input AppointmentInput {
 }
 
 extend type Query {
-    appointments(page: Int! = 0, size: Int! = 20, status: String): [Appointment!]!
+    """Sortable columns: appointmentId, patientId, doctorId, patientFirstName,
+    patientLastName, doctorFirstName, doctorLastName, appointmentDate, status, reason.
+    `sort` uses the same "property,direction" format REST's own `?sort=` query param
+    does (e.g. "appointmentDate,desc") — omitted or unrecognized falls back to
+    `appointmentId` ascending. `status` optionally filters the list."""
+    appointments(page: Int! = 0, size: Int! = 20, sort: String, status: String): [Appointment!]!
     appointment(appointmentId: ID!): Appointment
 }
 
