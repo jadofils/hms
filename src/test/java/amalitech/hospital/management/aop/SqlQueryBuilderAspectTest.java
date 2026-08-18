@@ -16,11 +16,14 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * Exercises {@link SqlQueryBuilderAspect} through a real Spring AOP proxy against the
- * real (test) database. None of its 3 cases has a production caller yet — per
- * CLAUDE.md, {@code RoleService.getRolePermissionCounts}/{@code findRolesWithPermissionCount}
- * was the one wired example and was removed for existing only to exercise this
- * pattern. This test-local bean stands in for "the next real caller" purely so the
- * aspect itself (all 3 switch cases + the unknown-key default branch) is covered.
+ * real (test) database. All 3 cases now have a real production caller —
+ * {@code RoleService.findRolesWithPermissionCount}, {@code DepartmentService.findDepartmentsWithDoctorCounts},
+ * {@code DoctorService.findDoctorsByDepartment} (see {@code RoleServiceTest}/
+ * {@code DepartmentServiceTest}/{@code DoctorServiceTest} for their own unit coverage,
+ * and {@code RoleControllerTest}/{@code DepartmentControllerTest}/{@code DoctorControllerTest}
+ * for end-to-end HTTP coverage) — this test-local bean still exists to exercise the
+ * aspect itself directly (all 3 switch cases + the unknown-key default branch), isolated
+ * from any one caller's own business logic.
  */
 @SpringBootTest
 @ActiveProfiles("test")
