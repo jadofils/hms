@@ -28,6 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Base64;
 import java.util.Comparator;
 import java.util.List;
@@ -98,7 +99,7 @@ public class AuthService {
         String role = primaryRole(user.getUserId())
                 .orElseThrow(() -> new UnauthorizedException("This account has no assigned role"));
 
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
 
         // sessionId is DB-generated (@GeneratedValue) — save first, THEN use the id
         // Hibernate assigns as the token's jti. Setting it ourselves before the first
@@ -124,9 +125,9 @@ public class AuthService {
         jwtService.blocklist(identity.jti(), identity.expiresAt());
 
         userSessionRepository.findById(identity.jti()).ifPresent(session -> {
-            session.setLogoutAt(LocalDateTime.now());
+            session.setLogoutAt(LocalDateTime.now(ZoneId.systemDefault()));
             session.setIsActive(false);
-            session.setUpdatedAt(LocalDateTime.now());
+            session.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
             userSessionRepository.save(session);
         });
     }
@@ -175,7 +176,7 @@ public class AuthService {
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new NotFoundException("User not found: " + userId));
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
         user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
         user.setUpdatedAt(now);
         userRepository.save(user);
@@ -201,8 +202,8 @@ public class AuthService {
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new NotFoundException("User not found: " + userId));
-        user.setEmailVerifiedAt(LocalDateTime.now());
-        user.setUpdatedAt(LocalDateTime.now());
+        user.setEmailVerifiedAt(LocalDateTime.now(ZoneId.systemDefault()));
+        user.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
         userRepository.save(user);
     }
 
@@ -213,7 +214,7 @@ public class AuthService {
         if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPasswordHash())) {
             throw new UnauthorizedException("Current password is incorrect");
         }
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
         user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
         user.setUpdatedAt(now);
         userRepository.save(user);
@@ -236,7 +237,7 @@ public class AuthService {
     /** A password reset invalidates every session issued before it — the old password
      *  might be compromised, so anything logged in under it should be kicked out too. */
     private void revokeAllSessions(String userId) {
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
         userSessionRepository.findByUser_UserIdAndIsActiveTrue(userId).forEach(session -> {
             jwtService.blocklist(session.getSessionId(), session.getExpiresAt());
             session.setIsActive(false);
