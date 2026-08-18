@@ -53,6 +53,8 @@ class UserResolverTest {
                 .path("user.userId").entity(String.class).isEqualTo("user-1")
                 .path("user.username").entity(String.class).isEqualTo("alice")
                 .path("user.isActive").entity(Boolean.class).isEqualTo(true);
+
+        verify(userService).getUser("user-1");
     }
 
     @Test
@@ -66,6 +68,8 @@ class UserResolverTest {
         graphQlTester.document("{ user(userId: \"user-1\") { roles { roleId roleName } } }")
                 .execute()
                 .path("user.roles[0].roleName").entity(String.class).isEqualTo("Admin");
+
+        verify(userService).getUserRoles("user-1");
     }
 
     @Test
@@ -77,6 +81,8 @@ class UserResolverTest {
                         "mutation { createUser(input: { username: \"alice\", email: \"alice@example.com\" }) { userId } }")
                 .execute()
                 .path("createUser.userId").entity(String.class).isEqualTo("user-1");
+
+        verify(userService).createUserByAdmin(any());
     }
 
     @Test
