@@ -12,6 +12,10 @@ type User {
     email: String!
     isActive: Boolean!
     roles: [Role!]!
+    """null for a user with no linked Doctor record — see UserService.attachRolesAndDoctors
+    (list) / UserService.getUser (single item); both eager-load this the same way REST's
+    UserResponse.doctor does, departments included."""
+    doctor: Doctor
 }
 
 type Role {
