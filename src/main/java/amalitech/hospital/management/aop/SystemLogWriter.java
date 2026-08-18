@@ -8,6 +8,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 /**
  * Persists one {@link SystemLog} row — used only by {@link LoggingAspect}'s failure
@@ -37,7 +38,7 @@ public class SystemLogWriter {
         // have a null getMessage() — fall back to the exception's simple class name
         // rather than letting that violate the column constraint.
         entry.setMessage(message == null || message.isBlank() ? "(no message)" : message);
-        entry.setCreatedAt(LocalDateTime.now());
+        entry.setCreatedAt(LocalDateTime.now(ZoneId.systemDefault()));
         systemLogRepository.save(entry);
     }
 }
