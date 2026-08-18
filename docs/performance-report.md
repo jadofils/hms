@@ -90,11 +90,36 @@ operational signal with nothing sensitive in them:
   (`micrometer-registry-prometheus`), for scraping into an actual Grafana dashboard rather
   than polling `/actuator/metrics/{name}` by hand.
 
+## What `@Timed` maps onto this report, and what it doesn't
+
+The two measurement mechanisms in this codebase answer related but different
+questions, and only one of them writes into this file:
+
+| | Sorting/searching, pagination sections above | `## REST vs GraphQL` below |
+|---|---|---|
+| Source | Hand-written prose, describing real code | `RestVsGraphQlBenchmarkTest`, a JUnit test |
+| Measured by | N/A — no timing, just what's implemented and why | The test's own `System.nanoTime()` around 30 real HTTP round trips per operation per style, run against a random-port embedded Tomcat |
+| `@Timed`/Micrometer involved? | No | No — a deliberate choice; see below |
+| Freshness | Edited by hand when the underlying code changes | A frozen snapshot from whenever someone last ran the test — re-run it to refresh (see the section's own footer for the command) |
+| Where the numbers live | This file, permanently | This file, between the `<!-- benchmark:auto-generated:start/end -->` markers below — **only that block** is overwritten on every re-run; the sections above and this one survive |
+
+**`@Timed` is not the source of the table below, and can't be** — Micrometer's
+`Timer` aggregates samples into a running histogram (count/sum/max/percentiles) for as
+long as the process stays up; it has no concept of "this run's 30 iterations" the way
+the benchmark test's own array of 30 `long` timings does, so there's no way to ask
+Micrometer for "the p95 of exactly the 30 calls I just made." What `@Timed` *does* give
+that this table can't: continuous, live, production-traffic numbers, queryable right now
+at `/actuator/metrics/hms.rest.requests` / `hms.graphql.requests` (see the "Live metrics"
+section above) — the two mechanisms are complementary, not overlapping: one is a
+controlled A/B snapshot for this report, the other is always-on observability for
+whatever traffic the app is actually serving.
+
 ## REST vs GraphQL
 
 The `ReadMe.md` Deliverables table names this "REST vs GraphQL analysis"; `docs/story-2.2-receptionist-filtering.md` deferred it until GraphQL (Epic 4) existed to compare against. Both styles call the *same* service layer against the *same* PostgreSQL database — this isolates REST's HTTP+DTO-mapping overhead from GraphQL's HTTP+query-parsing+field-resolution overhead. It is not an indexing/database-tuning study (see `FindUserDataAspect`/Section 5.7-equivalent work for that).
 
-**Generated:** 2026-08-17T20:52:04.269512  
+<!-- benchmark:auto-generated:start -->
+**Generated:** 2026-08-18T23:16:59.4698218  
 **Iterations per operation per style:** 30  
 **Environment:** single development machine, real PostgreSQL, real HTTP round trips via a random-port embedded Tomcat (`@SpringBootTest(webEnvironment = RANDOM_PORT)`).
 
@@ -102,21 +127,22 @@ The `ReadMe.md` Deliverables table names this "REST vs GraphQL analysis"; `docs/
 
 | Operation | Avg REST (ms) | Avg GraphQL (ms) | P95 REST (ms) | P95 GraphQL (ms) | Tput REST (ops/s) | Tput GraphQL (ops/s) | Faster |
 |---|---|---|---|---|---|---|---|
-| Get Doctor by id | 24.55 | 40.23 | 105.73 | 46.77 | 41 | 25 | REST (+39.0%) |
-| List Doctors (page=0,size=20) | 17.63 | 31.55 | 18.31 | 44.66 | 57 | 32 | REST (+44.1%) |
-| Get Patient by id | 16.89 | 19.21 | 61.15 | 39.85 | 59 | 52 | REST (+12.1%) |
-| Get Role by id | 13.96 | 103.66 | 18.28 | 134.43 | 72 | 10 | REST (+86.5%) |
-| Get Appointment by id | 11.41 | 18.45 | 15.53 | 36.20 | 88 | 54 | REST (+38.2%) |
-| Create Doctor | 31.58 | 31.90 | 39.63 | 40.32 | 32 | 31 | REST (+1.0%) |
-| Update Doctor | 14.80 | 27.27 | 17.11 | 32.85 | 68 | 37 | REST (+45.7%) |
-| Delete Doctor | 11.64 | 17.40 | 14.73 | 29.81 | 86 | 57 | REST (+33.1%) |
+| Get Doctor by id | 18.15 | 29.68 | 63.92 | 22.54 | 55 | 34 | REST (+38.9%) |
+| List Doctors (page=0,size=20) | 21.03 | 23.89 | 25.28 | 28.28 | 48 | 42 | REST (+12.0%) |
+| Get Patient by id | 19.97 | 16.11 | 67.88 | 20.95 | 50 | 62 | GraphQL (+19.3%) |
+| Get Role by id | 12.12 | 104.61 | 14.56 | 152.84 | 82 | 10 | REST (+88.4%) |
+| Get Appointment by id | 11.08 | 10.59 | 12.91 | 22.30 | 90 | 94 | GraphQL (+4.4%) |
+| Create Doctor | 22.03 | 21.89 | 26.57 | 26.37 | 45 | 46 | GraphQL (+0.6%) |
+| Update Doctor | 15.82 | 16.97 | 19.00 | 19.87 | 63 | 59 | REST (+6.8%) |
+| Delete Doctor | 15.04 | 14.19 | 18.07 | 15.43 | 66 | 70 | GraphQL (+5.6%) |
 
 ## Analysis
 
-- REST was faster (lower avg latency) in 8 of 8 operations measured.
-- Across all operations, REST averaged 17.81 ms and GraphQL averaged 36.21 ms per request.
+- REST was faster (lower avg latency) in 4 of 8 operations measured.
+- Across all operations, REST averaged 16.91 ms and GraphQL averaged 29.74 ms per request.
 - The largest relative gap was on **Get Role by id**, where REST was faster.
 - Both styles call the exact same service-layer method for a given operation (e.g. both `GET /api/v1/roles/{id}` and `query { role(...) }` call `RoleService.getRole`), so the gap measured here is transport/protocol overhead — GraphQL's per-request query parsing, validation, and field-by-field resolution — not database or business-logic cost.
 - **Conclusion:** for the fixed, well-known request shapes this project's own frontend sends today, REST's simpler request/response cycle has a real, measurable latency edge over GraphQL on the same data. GraphQL's own advantage — letting a caller request exactly the fields/nesting depth it needs in one round trip — matters more for callers with heterogeneous or deeply-nested field needs (see the live decision reference at `GET /docs/rest-vs-graphql`) than for raw per-request speed on a single fixed shape.
 
 *Generated by `RestVsGraphQlBenchmarkTest.runFullBenchmarkAndWriteReport` — re-run it (after commenting out its `@Disabled`) to regenerate this table.*
+<!-- benchmark:auto-generated:end -->

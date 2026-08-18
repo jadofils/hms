@@ -138,11 +138,45 @@ class RestVsGraphQlBenchmarkTest {
         List<String> gqlDeleteTargets = createDoctors(ITERATIONS, departmentId);
         rows.add(benchmarkDelete("Delete Doctor", restDeleteTargets, gqlDeleteTargets));
 
-        String report = renderReport(rows);
-        System.out.println(report);
+        String generated = renderReport(rows);
+        System.out.println(generated);
         Path reportPath = Path.of("docs", "performance-report.md");
-        Files.writeString(reportPath, report, StandardCharsets.UTF_8);
+        writeGeneratedSection(reportPath, generated);
         assertThat(reportPath).exists();
+    }
+
+    private static final String MARKER_START = "<!-- benchmark:auto-generated:start -->";
+    private static final String MARKER_END = "<!-- benchmark:auto-generated:end -->";
+
+    /**
+     * Replaces only the block between {@link #MARKER_START}/{@link #MARKER_END} in
+     * {@code docs/performance-report.md} with {@code generated} — never the whole file.
+     * The doc has hand-written sections above that block (algorithms, pagination
+     * strategy, the {@code @Timed}/Actuator explanation) that this test knows nothing
+     * about; an earlier version of this method called
+     * {@code Files.writeString(reportPath, report, ...)} directly, which silently
+     * destroyed every one of those sections on each re-run since it wrote the *entire*
+     * file as just the header + this method's own generated content. If the markers are
+     * missing (a from-scratch file, or someone stripped them), this falls back to
+     * writing {@code generated} as the whole file rather than guessing where hand-written
+     * prose should go.
+     */
+    private static void writeGeneratedSection(Path reportPath, String generated) throws IOException {
+        if (!Files.exists(reportPath)) {
+            Files.writeString(reportPath, generated, StandardCharsets.UTF_8);
+            return;
+        }
+        String existing = Files.readString(reportPath, StandardCharsets.UTF_8);
+        int start = existing.indexOf(MARKER_START);
+        int end = existing.indexOf(MARKER_END);
+        if (start < 0 || end < 0 || end < start) {
+            Files.writeString(reportPath, generated, StandardCharsets.UTF_8);
+            return;
+        }
+        String before = existing.substring(0, start + MARKER_START.length());
+        String after = existing.substring(end);
+        String merged = before + "\n" + generated.strip() + "\n" + after;
+        Files.writeString(reportPath, merged, StandardCharsets.UTF_8);
     }
 
     // ── Measurement ──────────────────────────────────────────────────────────
@@ -322,16 +356,15 @@ class RestVsGraphQlBenchmarkTest {
 
     // ── Report rendering ─────────────────────────────────────────────────────
 
+    /**
+     * Renders only what goes <em>between</em> the {@code benchmark:auto-generated}
+     * markers in {@code docs/performance-report.md} — the "# Performance Report" title,
+     * the intro paragraph, and the "## REST vs GraphQL" heading itself all live in the
+     * doc permanently, outside this block, alongside the hand-written algorithms/
+     * pagination/{@code @Timed} sections {@link #writeGeneratedSection} preserves.
+     */
     private String renderReport(List<BenchmarkRow> rows) {
         StringBuilder sb = new StringBuilder();
-        sb.append("# Performance Report — REST vs GraphQL\n\n");
-        sb.append("The `ReadMe.md` Deliverables table names this \"REST vs GraphQL analysis\"; ")
-                .append("`docs/story-2.2-receptionist-filtering.md` deferred it until GraphQL (Epic 4) ")
-                .append("existed to compare against. Both styles call the *same* service layer against ")
-                .append("the *same* PostgreSQL database — this isolates REST's HTTP+DTO-mapping overhead ")
-                .append("from GraphQL's HTTP+query-parsing+field-resolution overhead. It is not an ")
-                .append("indexing/database-tuning study (see `FindUserDataAspect`/Section 5.7-equivalent ")
-                .append("work for that).\n\n");
         sb.append("**Generated:** ").append(LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME))
                 .append("  \n**Iterations per operation per style:** ").append(ITERATIONS).append("  \n")
                 .append("**Environment:** single development machine, real PostgreSQL, real HTTP round trips ")
