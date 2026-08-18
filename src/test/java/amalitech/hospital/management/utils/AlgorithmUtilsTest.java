@@ -7,6 +7,7 @@ import java.util.Comparator;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 
 class AlgorithmUtilsTest {
 
@@ -29,8 +30,8 @@ class AlgorithmUtilsTest {
     @Test
     void mergeSort_noopOnNullList() {
         List<Integer> nullList = null;
-        AlgorithmUtils.mergeSort(nullList, Comparator.naturalOrder());
-        // no exception is the assertion
+        assertThatCode(() -> AlgorithmUtils.mergeSort(nullList, Comparator.naturalOrder()))
+                .doesNotThrowAnyException();
     }
 
     @Test
