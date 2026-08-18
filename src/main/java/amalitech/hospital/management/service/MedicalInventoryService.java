@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 /**
  * Medication stock CRUD — each record belongs to one {@link Medication}.
@@ -44,7 +45,7 @@ public class MedicalInventoryService {
     public MedicalInventoryResponse createInventoryRecord(MedicalInventoryRequest request) {
         Medication medication = findMedicationOrThrow(request.getMedicationId());
 
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
         MedicalInventory inventory = new MedicalInventory();
         inventory.setMedication(medication);
         inventory.setBatchNumber(request.getBatchNumber());
@@ -69,7 +70,7 @@ public class MedicalInventoryService {
         inventory.setQuantityInStock(request.getQuantityInStock() == null ? 0 : request.getQuantityInStock());
         inventory.setReorderLevel(request.getReorderLevel() == null ? 10 : request.getReorderLevel());
         inventory.setSupplier(request.getSupplier());
-        inventory.setUpdatedAt(LocalDateTime.now());
+        inventory.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
         return toResponse(medicalInventoryRepository.save(inventory));
     }
 
@@ -77,7 +78,7 @@ public class MedicalInventoryService {
     @CacheEvict(value = "medical-inventory", key = "#inventoryId")
     public void deleteInventoryRecord(String inventoryId) {
         MedicalInventory inventory = findInventoryOrThrow(inventoryId);
-        inventory.setDeletedAt(LocalDateTime.now());
+        inventory.setDeletedAt(LocalDateTime.now(ZoneId.systemDefault()));
         medicalInventoryRepository.save(inventory);
     }
 
