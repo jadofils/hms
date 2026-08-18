@@ -45,6 +45,8 @@ class NotificationResolverTest {
                 .execute()
                 .path("notification.type").entity(String.class).isEqualTo("appointment-created")
                 .path("notification.recipients").entityList(String.class).containsExactly("patient-1");
+
+        verify(notificationService).getNotification("notif-1");
     }
 
     @Test
@@ -55,6 +57,8 @@ class NotificationResolverTest {
                         "mutation { createNotification(input: { type: \"appointment-created\", recipients: [\"patient-1\"] }) { notificationId } }")
                 .execute()
                 .path("createNotification.notificationId").entity(String.class).isEqualTo("notif-1");
+
+        verify(notificationService).createNotification(any());
     }
 
     @Test
@@ -64,6 +68,8 @@ class NotificationResolverTest {
         graphQlTester.document("mutation { markNotificationAsRead(notificationId: \"notif-1\") { notificationId } }")
                 .execute()
                 .path("markNotificationAsRead.notificationId").entity(String.class).isEqualTo("notif-1");
+
+        verify(notificationService).markAsRead("notif-1");
     }
 
     @Test

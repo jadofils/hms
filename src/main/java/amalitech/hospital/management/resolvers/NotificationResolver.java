@@ -5,7 +5,7 @@ import amalitech.hospital.management.dto.notification.NotificationResponse;
 import amalitech.hospital.management.service.NotificationService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.PageRequest;
+import amalitech.hospital.management.utils.GraphQlPaging;
 import org.springframework.graphql.data.method.annotation.Argument;
 import org.springframework.graphql.data.method.annotation.MutationMapping;
 import org.springframework.graphql.data.method.annotation.QueryMapping;
@@ -13,6 +13,7 @@ import org.springframework.stereotype.Controller;
 import org.springframework.validation.annotation.Validated;
 
 import java.util.List;
+import io.micrometer.core.annotation.Timed;
 
 /**
  * GraphQL front door for {@link NotificationService} — see {@code UserResolver}'s
@@ -20,14 +21,16 @@ import java.util.List;
  */
 @Controller
 @Validated
+@Timed(value = "hms.graphql.requests", extraTags = {"layer", "graphql"}, percentiles = {0.5, 0.95, 0.99})
 @RequiredArgsConstructor
 public class NotificationResolver {
 
     private final NotificationService notificationService;
 
     @QueryMapping
-    public List<NotificationResponse> notifications(@Argument int page, @Argument int size) {
-        return notificationService.getNotifications(PageRequest.of(page, size)).getContent();
+    public List<NotificationResponse> notifications(@Argument int page, @Argument int size, @Argument String sort,
+            @Argument Boolean unread) {
+        return notificationService.getNotifications(GraphQlPaging.of(page, size, sort), unread).getContent();
     }
 
     @QueryMapping
