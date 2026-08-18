@@ -117,6 +117,94 @@ class UserServiceTest {
         assertThat(result.getContent()).isEmpty();
     }
 
+    @Test
+    void getUsers_eagerLoadsActiveRolesAndLinkedDoctor_forEveryRowInThePage() {
+        Object[] row = {"user-1", "alice", "alice@example.com", true};
+        when(self.findUsersPage(0, 20, null, null)).thenReturn(new PagedRawResult(List.of((Object) row), 1L));
+
+        Role adminRole = new Role();
+        adminRole.setRoleId("role-1");
+        adminRole.setRoleName("Admin");
+        when(userRoleRepository.findByIdUserIdInAndRevokedAtIsNull(List.of("user-1")))
+                .thenReturn(List.of(activeAssignment(adminRole)));
+
+        amalitech.hospital.management.model.doctor.Doctor linkedDoctor =
+                new amalitech.hospital.management.model.doctor.Doctor();
+        linkedDoctor.setDoctorId("doctor-1");
+        existingUser.setDoctor(linkedDoctor);
+        when(userRepository.findAllById(List.of("user-1"))).thenReturn(List.of(existingUser));
+        amalitech.hospital.management.dto.doctor.DoctorResponse doctorResponse =
+                new amalitech.hospital.management.dto.doctor.DoctorResponse();
+        doctorResponse.setDoctorId("doctor-1");
+        when(doctorService.getDoctor("doctor-1")).thenReturn(doctorResponse);
+
+        UserResponse response = userService.getUsers(PageRequest.of(0, 20)).getContent().get(0);
+
+        assertThat(response.getRoles()).extracting(RoleResponse::getRoleName).containsExactly("Admin");
+        assertThat(response.getDoctor()).isEqualTo(doctorResponse);
+        // Listing shows role details, not each role's permissions (see
+        // UserService.toShallowRoleResponse) — that stays single-item-only.
+        assertThat(response.getRoles().get(0).getPermissions()).isNull();
+        verify(roleService, never()).getRolePermissions(any());
+    }
+
+    @Test
+    void getUsers_setsEmptyRolesAndNullDoctor_forAUserWithNeither() {
+        Object[] row = {"user-1", "alice", "alice@example.com", true};
+        when(self.findUsersPage(0, 20, null, null)).thenReturn(new PagedRawResult(List.of((Object) row), 1L));
+        when(userRoleRepository.findByIdUserIdInAndRevokedAtIsNull(List.of("user-1"))).thenReturn(List.of());
+        when(userRepository.findAllById(List.of("user-1"))).thenReturn(List.of(existingUser));
+
+        UserResponse response = userService.getUsers(PageRequest.of(0, 20)).getContent().get(0);
+
+        assertThat(response.getRoles()).isEmpty();
+        assertThat(response.getDoctor()).isNull();
+    }
+
+    @Test
+    void getUsers_resolvesADistinctRoleOrDoctorOnlyOnce_evenWhenSharedAcrossManyRowsOnThePage() {
+        Object[] row1 = {"user-1", "alice", "alice@example.com", true};
+        Object[] row2 = {"user-2", "bob", "bob@example.com", true};
+        when(self.findUsersPage(0, 20, null, null))
+                .thenReturn(new PagedRawResult(List.of((Object) row1, (Object) row2), 2L));
+
+        Role sharedRole = new Role();
+        sharedRole.setRoleId("role-1");
+        sharedRole.setRoleName("Admin");
+        UserRole assignment1 = activeAssignment(sharedRole);
+        UserRole assignment2 = new UserRole();
+        assignment2.setId(idFor("user-2", "role-1"));
+        assignment2.setRole(sharedRole);
+        assignment2.setAssignedAt(LocalDateTime.now());
+        when(userRoleRepository.findByIdUserIdInAndRevokedAtIsNull(List.of("user-1", "user-2")))
+                .thenReturn(List.of(assignment1, assignment2));
+
+        User secondUser = new User();
+        secondUser.setUserId("user-2");
+        amalitech.hospital.management.model.doctor.Doctor sharedDoctor =
+                new amalitech.hospital.management.model.doctor.Doctor();
+        sharedDoctor.setDoctorId("doctor-1");
+        existingUser.setDoctor(sharedDoctor);
+        secondUser.setDoctor(sharedDoctor);
+        when(userRepository.findAllById(List.of("user-1", "user-2")))
+                .thenReturn(List.of(existingUser, secondUser));
+        amalitech.hospital.management.dto.doctor.DoctorResponse doctorResponse =
+                new amalitech.hospital.management.dto.doctor.DoctorResponse();
+        doctorResponse.setDoctorId("doctor-1");
+        when(doctorService.getDoctor("doctor-1")).thenReturn(doctorResponse);
+
+        List<UserResponse> content = userService.getUsers(PageRequest.of(0, 20)).getContent();
+
+        assertThat(content).extracting(UserResponse::getDoctor).containsOnly(doctorResponse);
+        assertThat(content).flatExtracting(UserResponse::getRoles)
+                .extracting(RoleResponse::getRoleName).containsExactly("Admin", "Admin");
+        // One shared doctor across both rows, resolved exactly once, not once per row —
+        // the whole point of the batching. Roles never call roleService at all in the
+        // listing (see toShallowRoleResponse) — no permissions expansion to dedupe here.
+        verify(roleService, never()).getRolePermissions(any());
+        verify(doctorService, times(1)).getDoctor("doctor-1");
+    }
+
     // ── getUser ──────────────────────────────────────────────────────────────
 
     @Test
@@ -130,7 +218,7 @@ class UserServiceTest {
     }
 
     @Test
-    void getUser_eagerLoadsActiveRoles_unlikeThePaginatedListing() {
+    void getUser_eagerLoadsActiveRoles() {
         when(userRepository.findById("user-1")).thenReturn(Optional.of(existingUser));
         Role adminRole = new Role();
         adminRole.setRoleId("role-1");
