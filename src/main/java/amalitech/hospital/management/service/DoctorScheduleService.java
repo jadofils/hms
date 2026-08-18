@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeParseException;
+import java.time.ZoneId;
 import java.util.List;
 
 /**
@@ -45,7 +46,7 @@ public class DoctorScheduleService {
         ScheduleDay day = validateDay(request.getDayOfWeek());
         validateTimeRange(request.getStartTime(), request.getEndTime());
 
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
         DoctorSchedule schedule = new DoctorSchedule();
         schedule.setDoctorId(doctorId);
         schedule.setDayOfWeek(day);
@@ -67,14 +68,14 @@ public class DoctorScheduleService {
         schedule.setStartTime(request.getStartTime());
         schedule.setEndTime(request.getEndTime());
         schedule.setIsAvailable(request.getIsAvailable() == null || request.getIsAvailable());
-        schedule.setUpdatedAt(LocalDateTime.now());
+        schedule.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
         return toResponse(doctorScheduleRepository.save(schedule));
     }
 
     @Transactional
     public void deleteSchedule(String doctorId, String scheduleId) {
         DoctorSchedule schedule = findScheduleOrThrow(doctorId, scheduleId);
-        schedule.setDeletedAt(LocalDateTime.now());
+        schedule.setDeletedAt(LocalDateTime.now(ZoneId.systemDefault()));
         doctorScheduleRepository.save(schedule);
     }
 
