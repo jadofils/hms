@@ -29,10 +29,12 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import io.micrometer.core.annotation.Timed;
 
 @RestController
 @RequestMapping("/api/v1/auth")
 @Tag(name = "Auth", description = "Registration, login/logout, password reset, and current-session identity")
+@Timed(value = "hms.rest.requests", extraTags = {"layer", "rest"}, percentiles = {0.5, 0.95, 0.99})
 @RequiredArgsConstructor
 public class AuthController {
 
