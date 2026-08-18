@@ -17,13 +17,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Exercises {@link AlgorithmAspect} through a real Spring AOP proxy. The mergeSort
  * branch already runs for real via {@code RoleService.getRolePermissions} (see
- * {@code RoleControllerTest}'s permission-grant flow), so this only needs to cover the
- * two branches with no production caller: binarySearch, and the fallback that just
- * runs the original method when the args don't match either algorithm's expected
- * shape. Per CLAUDE.md, {@code RoleService.search}/{@code hasPermission} existed only
- * to exercise binarySearch with no real business need and were removed — this
- * test-local bean stands in for "the next real caller" purely so the aspect itself is
- * covered, not as a production entry point.
+ * {@code RoleControllerTest}'s permission-grant flow), and binarySearch now runs for
+ * real too via {@code AppointmentService}'s double-booking guard (see
+ * {@code AppointmentServiceTest}'s conflict tests and
+ * {@code AppointmentControllerTest}'s end-to-end coverage) — this test-local bean still
+ * exists to exercise the aspect itself directly (binarySearch's own branch, plus the
+ * fallback that just runs the original method when the args don't match either
+ * algorithm's expected shape), isolated from any one caller's own business logic.
  */
 @SpringBootTest
 @ActiveProfiles("test")
