@@ -64,6 +64,8 @@ class PrescriptionResolverTest {
                 .path("prescription.dateIssued").entity(String.class).isEqualTo("2026-01-01")
                 .path("prescription.appointment.status").entity(String.class).isEqualTo("completed")
                 .path("prescription.items[0].quantity").entity(Integer.class).isEqualTo(2);
+
+        verify(prescriptionService).getPrescription("presc-1");
     }
 
     @Test
@@ -73,6 +75,8 @@ class PrescriptionResolverTest {
         graphQlTester.document("mutation { createPrescription(input: { appointmentId: \"appt-1\" }) { prescriptionId } }")
                 .execute()
                 .path("createPrescription.prescriptionId").entity(String.class).isEqualTo("presc-1");
+
+        verify(prescriptionService).createPrescription(any());
     }
 
     @Test
