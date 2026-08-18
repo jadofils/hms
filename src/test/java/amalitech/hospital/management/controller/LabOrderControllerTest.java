@@ -71,4 +71,23 @@ class LabOrderControllerTest extends AbstractControllerTest {
                         .content(body))
                 .andExpect(status().isNotFound());
     }
+
+    @Test
+    void getLabOrders_filtersByStatus_throughRealHttpEndpoint() throws Exception {
+        String token = adminToken();
+        String appointmentId = createAppointment(token);
+        String doctorId = createDoctor(token);
+        String createBody = "{\"appointmentId\":\"" + appointmentId + "\",\"doctorId\":\"" + doctorId
+                + "\",\"testName\":\"Blood Panel\"}";
+        mockMvc.perform(post("/api/v1/lab-orders")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createBody))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/api/v1/lab-orders?status=ordered").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/lab-orders?status=bogus").header("Authorization", "Bearer " + token))
+                .andExpect(status().isBadRequest());
+    }
 }
