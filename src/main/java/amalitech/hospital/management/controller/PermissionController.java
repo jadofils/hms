@@ -18,6 +18,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PagedModel;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import io.micrometer.core.annotation.Timed;
 
 /**
  * Permission lookups — backed by {@link PermissionService}. Read-only: permissions are a
@@ -29,6 +30,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/v1/permissions")
 @Tag(name = "Permissions", description = "RBAC permission definitions (read-only; see class Javadoc)")
+@Timed(value = "hms.rest.requests", extraTags = {"layer", "rest"}, percentiles = {0.5, 0.95, 0.99})
 @RequiredArgsConstructor
 public class PermissionController {
 
@@ -60,5 +62,23 @@ public class PermissionController {
     public ResponseEntity<ApiResult<PermissionResponse>> getPermission(
             @Parameter(description = "Permission UUID") @PathVariable String permissionId) {
         return ResponseEntity.ok(ApiResult.of("Permission retrieved", permissionService.getPermission(permissionId)));
+    }
+
+    // Static segment ("granted") — Spring's PathPattern matcher always prefers a
+    // literal segment over "{permissionId}" for the same request, regardless of
+    // declaration order, so this can't be shadowed by (or shadow) the lookup above.
+    @GetMapping("/granted")
+    @Operation(summary = "List permissions currently granted via an active role held by an active user (paginated, sortable)",
+            description = "Distinct from `GET /api/v1/permissions` (the entire fixed catalog, "
+                    + "granted or not) — an admin audit view of what's actually in effect right "
+                    + "now. Standard `?sort=property,direction` query param; sortable columns: "
+                    + "`permissionId`, `resource`, `action`.")
+    @ApiResponse(responseCode = "200", description = "Granted permissions returned")
+    @Parameter(name = "sort", in = ParameterIn.QUERY,
+            description = "Sort by property,direction. Possible properties: permissionId, resource, action.",
+            array = @ArraySchema(schema = @Schema(type = "string")), example = "resource,asc")
+    @RequirePermission(resource = Resource.PERMISSIONS, action = PermissionAction.READ)
+    public ResponseEntity<ApiResult<PagedModel<PermissionResponse>>> getGrantedPermissions(Pageable pageable) {
+        return ResponseEntity.ok(ApiResult.of("Granted permissions retrieved", permissionService.getGrantedPermissions(pageable)));
     }
 }
