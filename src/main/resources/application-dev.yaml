@@ -10,3 +10,11 @@ spring:
 logging:
   level:
     amalitech.hospital.management: DEBUG
+
+management:
+  endpoint:
+    health:
+      # "when-authorized" (application.yaml's default) needs a real authenticated
+      # principal to show per-dependency detail — there is none locally, so this
+      # override just shows it unconditionally for local convenience.
+      show-details: always
