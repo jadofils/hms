@@ -52,4 +52,20 @@ class PermissionControllerTest extends AbstractControllerTest {
         mockMvc.perform(get("/api/v1/permissions/nonexistent-id").header("Authorization", "Bearer " + token))
                 .andExpect(status().isNotFound());
     }
+
+    @Test
+    void getGrantedPermissions_returnsOkWithArrayBody() throws Exception {
+        String token = adminToken();
+
+        MvcResult result = mockMvc.perform(get("/api/v1/permissions/granted?sort=resource,asc")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        JsonNode content = objectMapper.readTree(result.getResponse().getContentAsString()).at("/data/content");
+        // The seeded admin role holds every permission (see DataSeeder), so this always
+        // returns rows.
+        assertThat(content.isArray()).isTrue();
+        assertThat(content.size()).isGreaterThan(0);
+    }
 }
