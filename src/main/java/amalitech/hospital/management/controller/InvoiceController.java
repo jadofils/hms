@@ -21,6 +21,7 @@ import org.springframework.data.web.PagedModel;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import io.micrometer.core.annotation.Timed;
 
 /**
  * Invoice management — backed by {@link InvoiceService}. See that class for
@@ -29,26 +30,32 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/v1/invoices")
 @Tag(name = "Invoices", description = "Billing invoices per appointment")
+@Timed(value = "hms.rest.requests", extraTags = {"layer", "rest"}, percentiles = {0.5, 0.95, 0.99})
 @RequiredArgsConstructor
 public class InvoiceController {
 
     private final InvoiceService invoiceService;
 
     @GetMapping
-    @Operation(summary = "List invoices (paginated, sortable)",
+    @Operation(summary = "List invoices (paginated, sortable, filterable)",
             description = "Standard `?sort=property,direction` query param (e.g. `sort=issuedAt,desc`) "
                     + "— backed directly by Spring Data JPA, so any `Invoice` field is sortable: "
                     + "`invoiceId`, `totalAmount`, `paymentStatus`, `issuedAt`, `updatedAt`. Unlike "
                     + "`/api/v1/users`, an unrecognized property is not validated ahead of time and "
-                    + "currently surfaces as a 400 rather than silently falling back.")
+                    + "currently surfaces as a 400 rather than silently falling back. Optional "
+                    + "`paymentStatus` query param filters the list — e.g. a billing follow-up "
+                    + "worklist of every unpaid invoice.")
     @ApiResponse(responseCode = "200", description = "Invoices returned")
     @Parameter(name = "sort", in = ParameterIn.QUERY,
             description = "Sort by property,direction. Possible properties: invoiceId, totalAmount, "
                     + "paymentStatus, issuedAt, updatedAt.",
             array = @ArraySchema(schema = @Schema(type = "string")), example = "issuedAt,desc")
     @RequirePermission(resource = Resource.INVOICES, action = PermissionAction.READ)
-    public ResponseEntity<ApiResult<PagedModel<InvoiceResponse>>> getInvoices(Pageable pageable) {
-        return ResponseEntity.ok(ApiResult.of("Invoices retrieved", invoiceService.getInvoices(pageable)));
+    public ResponseEntity<ApiResult<PagedModel<InvoiceResponse>>> getInvoices(
+            Pageable pageable,
+            @Parameter(description = "Filter by payment status: unpaid, partially_paid, paid")
+            @RequestParam(required = false) String paymentStatus) {
+        return ResponseEntity.ok(ApiResult.of("Invoices retrieved", invoiceService.getInvoices(pageable, paymentStatus)));
     }
 
     @GetMapping("/{invoiceId}")
