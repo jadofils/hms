@@ -54,6 +54,8 @@ class MedicalInventoryResolverTest {
                 .execute()
                 .path("inventoryRecord.expiryDate").entity(String.class).isEqualTo("2030-01-01")
                 .path("inventoryRecord.medication.name").entity(String.class).isEqualTo("Paracetamol");
+
+        verify(medicalInventoryService).getInventoryRecord("inv-1");
     }
 
     @Test
@@ -64,6 +66,8 @@ class MedicalInventoryResolverTest {
                         "mutation { createInventoryRecord(input: { medicationId: \"med-1\", expiryDate: \"2030-01-01\" }) { inventoryId } }")
                 .execute()
                 .path("createInventoryRecord.inventoryId").entity(String.class).isEqualTo("inv-1");
+
+        verify(medicalInventoryService).createInventoryRecord(any());
     }
 
     @Test

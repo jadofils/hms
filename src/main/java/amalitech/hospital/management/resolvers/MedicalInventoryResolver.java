@@ -7,7 +7,7 @@ import amalitech.hospital.management.service.MedicalInventoryService;
 import amalitech.hospital.management.service.MedicationService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.PageRequest;
+import amalitech.hospital.management.utils.GraphQlPaging;
 import org.springframework.graphql.data.method.annotation.Argument;
 import org.springframework.graphql.data.method.annotation.MutationMapping;
 import org.springframework.graphql.data.method.annotation.QueryMapping;
@@ -16,6 +16,7 @@ import org.springframework.stereotype.Controller;
 import org.springframework.validation.annotation.Validated;
 
 import java.util.List;
+import io.micrometer.core.annotation.Timed;
 
 /**
  * GraphQL front door for {@link MedicalInventoryService} — see {@code UserResolver}'s
@@ -23,6 +24,7 @@ import java.util.List;
  */
 @Controller
 @Validated
+@Timed(value = "hms.graphql.requests", extraTags = {"layer", "graphql"}, percentiles = {0.5, 0.95, 0.99})
 @RequiredArgsConstructor
 public class MedicalInventoryResolver {
 
@@ -30,8 +32,8 @@ public class MedicalInventoryResolver {
     private final MedicationService medicationService;
 
     @QueryMapping
-    public List<MedicalInventoryResponse> inventoryRecords(@Argument int page, @Argument int size) {
-        return medicalInventoryService.getInventoryRecords(PageRequest.of(page, size)).getContent();
+    public List<MedicalInventoryResponse> inventoryRecords(@Argument int page, @Argument int size, @Argument String sort) {
+        return medicalInventoryService.getInventoryRecords(GraphQlPaging.of(page, size, sort)).getContent();
     }
 
     @QueryMapping
