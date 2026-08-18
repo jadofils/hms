@@ -25,6 +25,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import io.micrometer.core.annotation.Timed;
 
 /**
  * User management — backed by {@link UserService}. See that class for caching/
@@ -33,6 +34,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/v1/users")
 @Tag(name = "Users", description = "User account management")
+@Timed(value = "hms.rest.requests", extraTags = {"layer", "rest"}, percentiles = {0.5, 0.95, 0.99})
 @RequiredArgsConstructor
 public class UserController {
 
