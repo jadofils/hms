@@ -35,6 +35,11 @@ import java.util.stream.Collectors;
  * stack trace, which must never go out over the wire. Every handler below returns the
  * same {@link ErrorResponse} shape, and the last one is a catch-all so nothing slips
  * through unmapped.
+ *
+ * <p>This only covers REST — a GraphQL mutation/query throwing the exact same exceptions
+ * never reaches this class at all (Spring MVC's exception-resolution pipeline and Spring
+ * for GraphQL's are two separate mechanisms); see {@link GraphQlExceptionResolver} for
+ * that transport's equivalent.
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
