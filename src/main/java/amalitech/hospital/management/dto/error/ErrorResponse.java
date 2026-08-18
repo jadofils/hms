@@ -3,6 +3,7 @@ package amalitech.hospital.management.dto.error;
 import lombok.Getter;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 /**
  * Uniform error body for every failure response — see {@code GlobalExceptionHandler}.
@@ -13,7 +14,7 @@ import java.time.LocalDateTime;
 @Getter
 public class ErrorResponse {
 
-    private final LocalDateTime timestamp = LocalDateTime.now();
+    private final LocalDateTime timestamp = LocalDateTime.now(ZoneId.systemDefault());
     private final int status;
     private final String error;
     private final String message;
