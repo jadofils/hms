@@ -55,9 +55,16 @@ input DoctorScheduleInput {
 }
 
 extend type Query {
-    doctors(page: Int! = 0, size: Int! = 20): [Doctor!]!
+    """Sortable columns: doctorId, firstName, lastName, specialization, phone, email.
+    `sort` uses the same "property,direction" format REST's own `?sort=` query param
+    does (e.g. "lastName,desc") — omitted or unrecognized falls back to `doctorId`
+    ascending."""
+    doctors(page: Int! = 0, size: Int! = 20, sort: String): [Doctor!]!
     doctor(doctorId: ID!): Doctor
-    departments(page: Int! = 0, size: Int! = 20): [Department!]!
+    """Sortable columns: departmentId, name, location, phone, createdAt, updatedAt.
+    `sort` uses the same "property,direction" format REST's own `?sort=` query param
+    does (e.g. "name,asc")."""
+    departments(page: Int! = 0, size: Int! = 20, sort: String): [Department!]!
     department(departmentId: ID!): Department
     doctorSchedules(doctorId: ID!): [DoctorSchedule!]!
     doctorAvailability(doctorId: ID!, day: String!, time: String!): Boolean!
