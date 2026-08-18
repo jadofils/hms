@@ -17,7 +17,11 @@ input InvoiceInput {
 }
 
 extend type Query {
-    invoices(page: Int! = 0, size: Int! = 20): [Invoice!]!
+    """Sortable columns: invoiceId, totalAmount, paymentStatus, issuedAt, updatedAt.
+    `sort` uses the same "property,direction" format REST's own `?sort=` query param
+    does (e.g. "issuedAt,desc"). `paymentStatus` optionally filters the list — e.g. a
+    billing follow-up worklist of every unpaid invoice."""
+    invoices(page: Int! = 0, size: Int! = 20, sort: String, paymentStatus: String): [Invoice!]!
     invoice(invoiceId: ID!): Invoice
 }
 
