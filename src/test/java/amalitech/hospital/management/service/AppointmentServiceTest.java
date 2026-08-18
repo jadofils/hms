@@ -8,6 +8,7 @@ import amalitech.hospital.management.enums.Gender;
 import amalitech.hospital.management.enums.PatientStatus;
 import amalitech.hospital.management.event.AppointmentCreatedEvent;
 import amalitech.hospital.management.exception.runtime.BadRequestException;
+import amalitech.hospital.management.exception.runtime.ConflictException;
 import amalitech.hospital.management.exception.runtime.NotFoundException;
 import amalitech.hospital.management.model.doctor.Doctor;
 import amalitech.hospital.management.model.patient.Appointment;
@@ -19,6 +20,7 @@ import amalitech.hospital.management.utils.filters.PagedRawResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageRequest;
@@ -79,6 +81,20 @@ class AppointmentServiceTest {
         existingAppointment.setAppointmentDate(LocalDateTime.now().plusDays(1));
         existingAppointment.setStatus(AppointmentStatus.SCHEDULED);
         existingAppointment.setReason("Checkup");
+    }
+
+    /** Simulates AlgorithmAspect's real mergeSort/binarySearch behavior for tests that go
+     *  through createAppointment/updateAppointment's double-booking check, with no
+     *  conflicting slot found. */
+    @SuppressWarnings("unchecked")
+    private void stubNoDoubleBookingConflict() {
+        when(appointmentRepository.findByDoctor_DoctorIdAndDeletedAtIsNull(any())).thenReturn(List.of());
+        when(self.sort(any(), any())).thenAnswer(inv -> {
+            List<Object> list = inv.getArgument(0);
+            list.sort((java.util.Comparator<Object>) inv.getArgument(1));
+            return list;
+        });
+        when(self.search(any(), any(), any())).thenReturn(-1);
     }
 
     // ── getAppointments (AOP-driven pagination) ─────────────────────────────
@@ -240,6 +256,7 @@ class AppointmentServiceTest {
         when(patientRepository.findById("patient-1")).thenReturn(Optional.of(existingPatient));
         when(doctorRepository.findById("doctor-1")).thenReturn(Optional.of(existingDoctor));
         when(appointmentRepository.save(any(Appointment.class))).thenAnswer(inv -> inv.getArgument(0));
+        stubNoDoubleBookingConflict();
         AppointmentRequest request = requestFor("patient-1", "doctor-1");
 
         AppointmentResponse response = appointmentService.createAppointment(request);
@@ -248,6 +265,21 @@ class AppointmentServiceTest {
         assertThat(response.getPatientName()).isEqualTo("Alice Doe");
         assertThat(response.getDoctorName()).isEqualTo("Greg House");
         verify(eventBus).publish(any(AppointmentCreatedEvent.class));
+    }
+
+    @Test
+    void createAppointment_throwsConflict_whenDoctorAlreadyBookedAtThatDateTime() {
+        when(patientRepository.findById("patient-1")).thenReturn(Optional.of(existingPatient));
+        when(doctorRepository.findById("doctor-1")).thenReturn(Optional.of(existingDoctor));
+        AppointmentRequest request = requestFor("patient-1", "doctor-1");
+        when(appointmentRepository.findByDoctor_DoctorIdAndDeletedAtIsNull("doctor-1"))
+                .thenReturn(List.of(existingAppointment));
+        when(self.sort(any(), any())).thenAnswer(inv -> inv.getArgument(0));
+        when(self.search(any(), any(), any())).thenReturn(0);
+
+        assertThatThrownBy(() -> appointmentService.createAppointment(request))
+                .isInstanceOf(ConflictException.class);
+        verify(appointmentRepository, never()).save(any());
     }
 
     // ── updateAppointment ────────────────────────────────────────────────────
@@ -267,6 +299,7 @@ class AppointmentServiceTest {
         when(patientRepository.findById("patient-1")).thenReturn(Optional.of(existingPatient));
         when(doctorRepository.findById("doctor-1")).thenReturn(Optional.of(existingDoctor));
         when(appointmentRepository.save(any(Appointment.class))).thenAnswer(inv -> inv.getArgument(0));
+        stubNoDoubleBookingConflict();
         AppointmentRequest request = requestFor("patient-1", "doctor-1");
         request.setStatus("completed");
         request.setReason("Follow-up");
@@ -275,6 +308,50 @@ class AppointmentServiceTest {
 
         assertThat(response.getStatus()).isEqualTo("completed");
         assertThat(existingAppointment.getReason()).isEqualTo("Follow-up");
+    }
+
+    @Test
+    void updateAppointment_excludesItsOwnCurrentSlot_fromTheDoubleBookingCheck() {
+        // Only appointment sharing this doctor is the one being updated itself — its own
+        // unchanged date/time must never count as a conflict against itself.
+        when(appointmentRepository.findById("appt-1")).thenReturn(Optional.of(existingAppointment));
+        when(patientRepository.findById("patient-1")).thenReturn(Optional.of(existingPatient));
+        when(doctorRepository.findById("doctor-1")).thenReturn(Optional.of(existingDoctor));
+        when(appointmentRepository.save(any(Appointment.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(appointmentRepository.findByDoctor_DoctorIdAndDeletedAtIsNull("doctor-1"))
+                .thenReturn(List.of(existingAppointment));
+        when(self.sort(any(), any())).thenAnswer(inv -> inv.getArgument(0));
+        when(self.search(any(), any(), any())).thenReturn(-1);
+        AppointmentRequest request = requestFor("patient-1", "doctor-1");
+        request.setAppointmentDate(existingAppointment.getAppointmentDate());
+
+        AppointmentResponse response = appointmentService.updateAppointment("appt-1", request);
+
+        assertThat(response).isNotNull();
+        ArgumentCaptor<List<Appointment>> listCaptor = ArgumentCaptor.forClass(List.class);
+        verify(self).sort(listCaptor.capture(), any());
+        assertThat(listCaptor.getValue()).isEmpty();
+    }
+
+    @Test
+    void updateAppointment_throwsConflict_whenMovedOntoAnotherAppointmentsSlot() {
+        Appointment other = new Appointment();
+        other.setAppointmentId("appt-2");
+        other.setDoctor(existingDoctor);
+        other.setAppointmentDate(LocalDateTime.now().plusDays(2));
+        when(appointmentRepository.findById("appt-1")).thenReturn(Optional.of(existingAppointment));
+        when(patientRepository.findById("patient-1")).thenReturn(Optional.of(existingPatient));
+        when(doctorRepository.findById("doctor-1")).thenReturn(Optional.of(existingDoctor));
+        when(appointmentRepository.findByDoctor_DoctorIdAndDeletedAtIsNull("doctor-1"))
+                .thenReturn(List.of(existingAppointment, other));
+        when(self.sort(any(), any())).thenAnswer(inv -> inv.getArgument(0));
+        when(self.search(any(), any(), any())).thenReturn(0);
+        AppointmentRequest request = requestFor("patient-1", "doctor-1");
+        request.setAppointmentDate(other.getAppointmentDate());
+
+        assertThatThrownBy(() -> appointmentService.updateAppointment("appt-1", request))
+                .isInstanceOf(ConflictException.class);
+        verify(appointmentRepository, never()).save(any());
     }
 
     // ── deleteAppointment ────────────────────────────────────────────────────

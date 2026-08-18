@@ -1,5 +1,6 @@
 package amalitech.hospital.management.service;
 
+import amalitech.hospital.management.annotation.ApplyAlgorithm;
 import amalitech.hospital.management.annotation.FindUserData;
 import amalitech.hospital.management.aop.EventBus;
 import amalitech.hospital.management.dto.doctor.DoctorResponse;
@@ -9,6 +10,7 @@ import amalitech.hospital.management.dto.patient.PatientResponse;
 import amalitech.hospital.management.enums.AppointmentStatus;
 import amalitech.hospital.management.event.AppointmentCreatedEvent;
 import amalitech.hospital.management.exception.runtime.BadRequestException;
+import amalitech.hospital.management.exception.runtime.ConflictException;
 import amalitech.hospital.management.exception.runtime.NotFoundException;
 import amalitech.hospital.management.model.doctor.Doctor;
 import amalitech.hospital.management.model.patient.Appointment;
@@ -32,7 +34,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.function.Function;
 
 /**
  * Appointment CRUD.
@@ -123,8 +129,9 @@ public class AppointmentService {
     public AppointmentResponse createAppointment(AppointmentRequest request) {
         Patient patient = findPatientOrThrow(request.getPatientId());
         Doctor doctor = findDoctorOrThrow(request.getDoctorId());
+        throwIfDoctorDoubleBooked(doctor.getDoctorId(), request.getAppointmentDate(), null);
 
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
         Appointment appointment = new Appointment();
         appointment.setPatient(patient);
         appointment.setDoctor(doctor);
@@ -145,6 +152,7 @@ public class AppointmentService {
         Appointment appointment = findAppointmentOrThrow(appointmentId);
         Patient patient = findPatientOrThrow(request.getPatientId());
         Doctor doctor = findDoctorOrThrow(request.getDoctorId());
+        throwIfDoctorDoubleBooked(doctor.getDoctorId(), request.getAppointmentDate(), appointmentId);
 
         appointment.setPatient(patient);
         appointment.setDoctor(doctor);
@@ -153,7 +161,7 @@ public class AppointmentService {
         if (request.getStatus() != null && !request.getStatus().isBlank()) {
             appointment.setStatus(validateStatus(request.getStatus()));
         }
-        appointment.setUpdatedAt(LocalDateTime.now());
+        appointment.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
         return toResponse(appointmentRepository.save(appointment));
     }
 
@@ -161,8 +169,54 @@ public class AppointmentService {
     @CacheEvict(value = "appointments", key = "#appointmentId")
     public void deleteAppointment(String appointmentId) {
         Appointment appointment = findAppointmentOrThrow(appointmentId);
-        appointment.setDeletedAt(LocalDateTime.now());
+        appointment.setDeletedAt(LocalDateTime.now(ZoneId.systemDefault()));
         appointmentRepository.save(appointment);
+    }
+
+    // ── Double-booking guard ─────────────────────────────────────────────────
+
+    /**
+     * Rejects a request that would double-book the doctor at the exact same date/time.
+     * Loads the doctor's own active appointments, sorts them by date via {@link #sort}
+     * (an {@code @ApplyAlgorithm("mergeSort")} entry point), then locates the requested
+     * slot via {@link #search} (an {@code @ApplyAlgorithm("binarySearch")} entry point)
+     * instead of a second, date-filtered DB round trip. {@code excludeAppointmentId} is
+     * the appointment being updated (never itself a conflict with its own unchanged
+     * slot) — {@code null} when creating.
+     */
+    private void throwIfDoctorDoubleBooked(String doctorId, LocalDateTime requestedDate, String excludeAppointmentId) {
+        List<Appointment> doctorAppointments = new ArrayList<>(
+                appointmentRepository.findByDoctor_DoctorIdAndDeletedAtIsNull(doctorId));
+        if (excludeAppointmentId != null) {
+            doctorAppointments.removeIf(a -> a.getAppointmentId().equals(excludeAppointmentId));
+        }
+        List<Appointment> sorted = self.sort(doctorAppointments, Comparator.comparing(Appointment::getAppointmentDate));
+        if (self.search(sorted, requestedDate, Appointment::getAppointmentDate) != -1) {
+            throw new ConflictException("Doctor already has an appointment scheduled at this date and time");
+        }
+    }
+
+    /**
+     * AOP entry point for {@code AlgorithmAspect} — sorts {@code list} in place and
+     * returns the same reference; {@code list} must be mutable. Must be called via
+     * {@link #self}, never as {@code this.sort(...)}: Spring AOP proxies only intercept
+     * calls made through the proxy, so a same-class call would bypass the aspect and
+     * fall through to the body below.
+     */
+    @ApplyAlgorithm("mergeSort")
+    public <T> List<T> sort(List<T> list, Comparator<T> comparator) {
+        throw new IllegalStateException("AlgorithmAspect did not intercept this call");
+    }
+
+    /**
+     * AOP entry point for {@code AlgorithmAspect} — {@code list} must already be sorted
+     * by the same key {@code keyExtractor} produces (see {@link #sort} above); binary
+     * search on an unsorted list gives a meaningless result, not an error. Must be
+     * called via {@link #self}, never as {@code this.search(...)}.
+     */
+    @ApplyAlgorithm("binarySearch")
+    public <T> int search(List<T> list, Object targetKey, Function<T, ?> keyExtractor) {
+        throw new IllegalStateException("AlgorithmAspect did not intercept this call");
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
