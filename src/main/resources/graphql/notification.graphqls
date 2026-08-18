@@ -27,7 +27,12 @@ input NotificationInput {
 }
 
 extend type Query {
-    notifications(page: Int! = 0, size: Int! = 20): [Notification!]!
+    """Sortable columns: notificationId, type, status, priority, readAt, createdAt,
+    updatedAt. `sort` uses the same "property,direction" format REST's own `?sort=`
+    query param does (e.g. "createdAt,desc"). `unread` optionally filters to only
+    unread (`true`) or only already-read (`false`) notifications — omitted returns
+    every notification."""
+    notifications(page: Int! = 0, size: Int! = 20, sort: String, unread: Boolean): [Notification!]!
     notification(notificationId: ID!): Notification
 }
 
