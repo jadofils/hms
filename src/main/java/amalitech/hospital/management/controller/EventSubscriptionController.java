@@ -14,6 +14,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import io.micrometer.core.annotation.Timed;
 
 /**
  * Admin toggle for the {@code @Subscribe}-driven event listeners registered in
@@ -24,6 +25,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/v1/events")
 @Tag(name = "Events", description = "Domain-event subscriber administration")
+@Timed(value = "hms.rest.requests", extraTags = {"layer", "rest"}, percentiles = {0.5, 0.95, 0.99})
 @RequiredArgsConstructor
 public class EventSubscriptionController {
 
