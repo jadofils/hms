@@ -21,6 +21,7 @@ import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -148,7 +149,7 @@ public class DataSeeder implements CommandLineRunner {
      */
     private Map<String, String> seedPermissions() {
         Map<String, String> permissionIds = new LinkedHashMap<>();
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
         for (Resource resource : Resource.values()) {
             for (PermissionAction action : PermissionAction.values()) {
                 String resourceValue = resource.getDbValue();
@@ -220,7 +221,7 @@ public class DataSeeder implements CommandLineRunner {
                         // these out immediately, the same reasoning
                         // UserService.createUserByAdmin already applies.
                         userRepository.findById(newUserId).ifPresent(user -> {
-                            user.setEmailVerifiedAt(LocalDateTime.now());
+                            user.setEmailVerifiedAt(LocalDateTime.now(ZoneId.systemDefault()));
                             userRepository.save(user);
                         });
                         return newUserId;
