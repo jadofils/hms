@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 
 /**
@@ -44,7 +45,7 @@ public class MaintenanceService {
     @Transactional
     @ScheduledMaintenance(value = "log-cleanup", interval = 1, unit = MaintenanceInterval.DAYS)
     public void cleanupOldLogs() {
-        LocalDateTime cutoff = LocalDateTime.now().minusDays(logRetentionDays);
+        LocalDateTime cutoff = LocalDateTime.now(ZoneId.systemDefault()).minusDays(logRetentionDays);
         systemLogRepository.deleteByCreatedAtBefore(cutoff);
         log.info("Log cleanup complete: removed system logs older than {}", cutoff);
     }
@@ -54,9 +55,9 @@ public class MaintenanceService {
     @Transactional
     @ScheduledMaintenance(value = "deactivate-idle-users", interval = 6, unit = MaintenanceInterval.HOURS)
     public void deactivateIdleUsers() {
-        LocalDateTime cutoff = LocalDateTime.now().minusDays(idleUserDays);
+        LocalDateTime cutoff = LocalDateTime.now(ZoneId.systemDefault()).minusDays(idleUserDays);
         List<User> idleUsers = userRepository.findActiveUsersIdleSince(cutoff);
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
         for (User user : idleUsers) {
             user.setIsActive(false);
             user.setUpdatedAt(now);
