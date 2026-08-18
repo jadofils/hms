@@ -15,12 +15,14 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.CachePut;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PagedModel;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 
 /**
@@ -47,8 +49,22 @@ public class NotificationService {
     private final UserRepository userRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public PagedModel<NotificationResponse> getNotifications(Pageable pageable) {
-        return new PagedModel<>(notificationRepository.findAll(pageable).map(this::toResponse));
+    /**
+     * {@code unread} is optional — {@code null} (omitted) returns every notification;
+     * {@code true}/{@code false} filters to only unread ({@code readAt IS NULL}) or
+     * only already-read ones. This is the one real reason {@code readAt} exists at all
+     * (see {@link #markAsRead}'s own Javadoc) — a caller's own notification feed asking
+     * "what haven't I dismissed yet?" is a real, common inbox pattern, not a synthetic
+     * example.
+     */
+    public PagedModel<NotificationResponse> getNotifications(Pageable pageable, Boolean unread) {
+        if (unread == null) {
+            return new PagedModel<>(notificationRepository.findAll(pageable).map(this::toResponse));
+        }
+        Page<Notification> page = unread
+                ? notificationRepository.findByReadAtIsNull(pageable)
+                : notificationRepository.findByReadAtIsNotNull(pageable);
+        return new PagedModel<>(page.map(this::toResponse));
     }
 
     @Cacheable(value = "notifications", key = "#notificationId")
@@ -61,7 +77,7 @@ public class NotificationService {
         User actor = request.getActorUserId() == null || request.getActorUserId().isBlank()
                 ? null : findUserOrThrow(request.getActorUserId());
 
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
         Notification notification = new Notification();
         notification.setType(request.getType());
         notification.setActor(actor);
@@ -92,7 +108,7 @@ public class NotificationService {
         if (request.getPriority() != null && !request.getPriority().isBlank()) {
             notification.setPriority(request.getPriority().toLowerCase());
         }
-        notification.setUpdatedAt(LocalDateTime.now());
+        notification.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
         return toResponse(notificationRepository.save(notification));
     }
 
@@ -103,8 +119,8 @@ public class NotificationService {
     @CachePut(value = "notifications", key = "#notificationId")
     public NotificationResponse markAsRead(String notificationId) {
         Notification notification = findNotificationOrThrow(notificationId);
-        notification.setReadAt(LocalDateTime.now());
-        notification.setUpdatedAt(LocalDateTime.now());
+        notification.setReadAt(LocalDateTime.now(ZoneId.systemDefault()));
+        notification.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
         return toResponse(notificationRepository.save(notification));
     }
 
@@ -112,7 +128,7 @@ public class NotificationService {
     @CacheEvict(value = "notifications", key = "#notificationId")
     public void deleteNotification(String notificationId) {
         Notification notification = findNotificationOrThrow(notificationId);
-        notification.setDeletedAt(LocalDateTime.now());
+        notification.setDeletedAt(LocalDateTime.now(ZoneId.systemDefault()));
         notificationRepository.save(notification);
     }
 

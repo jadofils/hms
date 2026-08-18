@@ -13,6 +13,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.web.PagedModel;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -50,6 +54,42 @@ class NotificationServiceTest {
         existingNotification.setActor(existingActor);
         existingNotification.setRecipients("[\"user-2\"]");
         existingNotification.setPriority("normal");
+    }
+
+    // ── getNotifications (optional unread filter) ───────────────────────────
+
+    @Test
+    void getNotifications_returnsUnfilteredPage_whenUnreadOmitted() {
+        Page<Notification> page = new PageImpl<>(List.of(existingNotification), PageRequest.of(0, 20), 1);
+        when(notificationRepository.findAll(PageRequest.of(0, 20))).thenReturn(page);
+
+        PagedModel<NotificationResponse> result = notificationService.getNotifications(PageRequest.of(0, 20), null);
+
+        assertThat(result.getContent()).hasSize(1);
+        verify(notificationRepository, never()).findByReadAtIsNull(any());
+        verify(notificationRepository, never()).findByReadAtIsNotNull(any());
+    }
+
+    @Test
+    void getNotifications_returnsOnlyUnread_whenUnreadTrue() {
+        Page<Notification> page = new PageImpl<>(List.of(existingNotification), PageRequest.of(0, 20), 1);
+        when(notificationRepository.findByReadAtIsNull(PageRequest.of(0, 20))).thenReturn(page);
+
+        PagedModel<NotificationResponse> result = notificationService.getNotifications(PageRequest.of(0, 20), true);
+
+        assertThat(result.getContent()).hasSize(1);
+        verify(notificationRepository, never()).findByReadAtIsNotNull(any());
+    }
+
+    @Test
+    void getNotifications_returnsOnlyRead_whenUnreadFalse() {
+        Page<Notification> page = new PageImpl<>(List.of(existingNotification), PageRequest.of(0, 20), 1);
+        when(notificationRepository.findByReadAtIsNotNull(PageRequest.of(0, 20))).thenReturn(page);
+
+        PagedModel<NotificationResponse> result = notificationService.getNotifications(PageRequest.of(0, 20), false);
+
+        assertThat(result.getContent()).hasSize(1);
+        verify(notificationRepository, never()).findByReadAtIsNull(any());
     }
 
     @Test
