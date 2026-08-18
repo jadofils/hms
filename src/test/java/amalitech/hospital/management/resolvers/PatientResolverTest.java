@@ -51,6 +51,8 @@ class PatientResolverTest {
                 .execute()
                 .path("patient.firstName").entity(String.class).isEqualTo("Alice")
                 .path("patient.dob").entity(String.class).isEqualTo("1990-01-01");
+
+        verify(patientService).getPatient("patient-1");
     }
 
     @Test
@@ -62,6 +64,8 @@ class PatientResolverTest {
         graphQlTester.document("{ patients(page: 0, size: 20) { patientId } }")
                 .execute()
                 .path("patients[0].patientId").entity(String.class).isEqualTo("patient-1");
+
+        verify(patientService).getPatients(any(), any(), any());
     }
 
     @Test
@@ -72,6 +76,8 @@ class PatientResolverTest {
                         "mutation { createPatient(input: { firstName: \"Alice\", lastName: \"Doe\", dob: \"1990-01-01\", gender: \"F\" }) { patientId } }")
                 .execute()
                 .path("createPatient.patientId").entity(String.class).isEqualTo("patient-1");
+
+        verify(patientService).createPatient(any());
     }
 
     @Test
