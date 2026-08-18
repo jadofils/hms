@@ -47,11 +47,20 @@ input RoleInput {
 }
 
 extend type Query {
-    users(page: Int! = 0, size: Int! = 20): [User!]!
+    """Sortable columns: userId, username, email, isActive. `sort` uses the same
+    "property,direction" format REST's own `?sort=` query param does (e.g.
+    "username,desc")."""
+    users(page: Int! = 0, size: Int! = 20, sort: String): [User!]!
     user(userId: ID!): User
-    roles(page: Int! = 0, size: Int! = 20): [Role!]!
+    """Sortable columns: roleId, roleName, description, createdAt, updatedAt. `sort`
+    uses the same "property,direction" format REST's own `?sort=` query param does
+    (e.g. "roleName,asc")."""
+    roles(page: Int! = 0, size: Int! = 20, sort: String): [Role!]!
     role(roleId: ID!): Role
-    permissions(page: Int! = 0, size: Int! = 20): [Permission!]!
+    """Sortable columns: permissionId, resource, action, createdAt, updatedAt. `sort`
+    uses the same "property,direction" format REST's own `?sort=` query param does
+    (e.g. "resource,asc")."""
+    permissions(page: Int! = 0, size: Int! = 20, sort: String): [Permission!]!
     permission(permissionId: ID!): Permission
 }
 
