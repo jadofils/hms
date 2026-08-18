@@ -43,6 +43,8 @@ class DoctorResolverTest {
                 .execute()
                 .path("doctor.firstName").entity(String.class).isEqualTo("Greg")
                 .path("doctor.departments").entityList(Object.class).hasSize(0);
+
+        verify(doctorService).getDoctor("doctor-1");
     }
 
     @Test
@@ -52,6 +54,8 @@ class DoctorResolverTest {
         graphQlTester.document("mutation { createDoctor(input: { firstName: \"Greg\", lastName: \"House\" }) { doctorId } }")
                 .execute()
                 .path("createDoctor.doctorId").entity(String.class).isEqualTo("doctor-1");
+
+        verify(doctorService).createDoctor(any());
     }
 
     @Test
