@@ -35,6 +35,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
@@ -147,7 +148,7 @@ public class UserService {
             throw new ConflictException("Email '" + request.getEmail() + "' is already registered");
         }
 
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
         User user = new User();
         user.setUsername(request.getUsername());
         user.setEmail(request.getEmail());
@@ -198,7 +199,7 @@ public class UserService {
         }
 
         String generatedPassword = generateRandomPassword();
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
         User user = new User();
         user.setUsername(request.getUsername());
         user.setEmail(request.getEmail());
@@ -260,7 +261,7 @@ public class UserService {
         user.setUsername(request.getUsername());
         user.setEmail(request.getEmail());
         user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
-        user.setUpdatedAt(LocalDateTime.now());
+        user.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
         return toResponse(userRepository.save(user));
     }
 
@@ -268,7 +269,7 @@ public class UserService {
     @CacheEvict(value = "users", key = "#userId")
     public void deleteUser(String userId) {
         User user = findUserOrThrow(userId);
-        user.setDeletedAt(LocalDateTime.now());
+        user.setDeletedAt(LocalDateTime.now(ZoneId.systemDefault()));
         userRepository.save(user);
     }
 
@@ -288,7 +289,7 @@ public class UserService {
         Role role = roleRepository.findById(roleId)
                 .orElseThrow(() -> new NotFoundException("Role not found: " + roleId));
 
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
         UserRole existing = userRoleRepository.findByIdUserIdAndIdRoleId(userId, roleId).orElse(null);
         if (existing != null) {
             if (existing.getRevokedAt() == null) {
@@ -320,7 +321,7 @@ public class UserService {
         UserRole userRole = userRoleRepository.findByIdUserIdAndIdRoleId(userId, roleId)
                 .filter(ur -> ur.getRevokedAt() == null)
                 .orElseThrow(() -> new NotFoundException("User does not hold this role"));
-        userRole.setRevokedAt(LocalDateTime.now());
+        userRole.setRevokedAt(LocalDateTime.now(ZoneId.systemDefault()));
         userRoleRepository.save(userRole);
     }
 
