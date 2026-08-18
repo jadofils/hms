@@ -49,6 +49,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 
 /**
@@ -182,7 +183,7 @@ public class PatientService {
             throw new ConflictException("Phone '" + request.getPhone() + "' is already registered");
         }
 
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
         Patient patient = new Patient();
         patient.setFirstName(request.getFirstName());
         patient.setLastName(request.getLastName());
@@ -222,7 +223,7 @@ public class PatientService {
         if (request.getStatus() != null && !request.getStatus().isBlank()) {
             patient.setStatus(validateStatus(request.getStatus()));
         }
-        patient.setUpdatedAt(LocalDateTime.now());
+        patient.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
         return toResponse(patientRepository.save(patient));
     }
 
@@ -230,7 +231,7 @@ public class PatientService {
     @CacheEvict(value = "patients", key = "#patientId")
     public void deletePatient(String patientId) {
         Patient patient = findPatientOrThrow(patientId);
-        patient.setDeletedAt(LocalDateTime.now());
+        patient.setDeletedAt(LocalDateTime.now(ZoneId.systemDefault()));
         patientRepository.save(patient);
     }
 
