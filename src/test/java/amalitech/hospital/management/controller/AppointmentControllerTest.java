@@ -75,4 +75,29 @@ class AppointmentControllerTest extends AbstractControllerTest {
                         .content(createBody))
                 .andExpect(status().isNotFound());
     }
+
+    @Test
+    void createAppointment_returns409_whenDoctorAlreadyBookedAtThatDateTime() throws Exception {
+        String token = adminToken();
+        String doctorId = createDoctor(token);
+        String firstPatientId = createPatient(token);
+        String secondPatientId = createPatient(token);
+        String sharedSlot = "2029-03-10T09:00:00";
+
+        String firstBody = "{\"patientId\":\"" + firstPatientId + "\",\"doctorId\":\"" + doctorId + "\","
+                + "\"appointmentDate\":\"" + sharedSlot + "\",\"reason\":\"Checkup\"}";
+        mockMvc.perform(post("/api/v1/appointments")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(firstBody))
+                .andExpect(status().isCreated());
+
+        String secondBody = "{\"patientId\":\"" + secondPatientId + "\",\"doctorId\":\"" + doctorId + "\","
+                + "\"appointmentDate\":\"" + sharedSlot + "\",\"reason\":\"Different checkup\"}";
+        mockMvc.perform(post("/api/v1/appointments")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(secondBody))
+                .andExpect(status().isConflict());
+    }
 }
