@@ -38,6 +38,11 @@ public class ScheduledMaintenanceRegistrar implements BeanPostProcessor {
 
     private final TaskScheduler taskScheduler;
 
+    // Fires once per bean created by Spring at startup (every bean, not just
+    // MaintenanceService) — deliberately no log line here: with dozens of beans in this
+    // context, a per-bean debug log would drown out every other log line at startup for
+    // no benefit, since almost none of them ever have a @ScheduledMaintenance method.
+    // The log.info below, which only fires for an actual match, is the useful signal.
     @Override
     public Object postProcessAfterInitialization(Object bean, String beanName) {
         Class<?> targetClass = AopUtils.getTargetClass(bean);
@@ -54,7 +59,10 @@ public class ScheduledMaintenanceRegistrar implements BeanPostProcessor {
         return bean;
     }
 
+    // Fires on each scheduled run of a task registered above — e.g.
+    // MaintenanceService.cleanupOldLogs/deactivateIdleUsers on their configured interval.
     private void invoke(Object bean, Method method, String taskName) {
+        log.debug("ScheduledMaintenanceRegistrar.invoke invoked — called by the TaskScheduler on each scheduled run (e.g. MaintenanceService.cleanupOldLogs)");
         try {
             method.invoke(bean);
         } catch (Exception e) {
@@ -65,7 +73,10 @@ public class ScheduledMaintenanceRegistrar implements BeanPostProcessor {
         }
     }
 
+    // Fires once per @ScheduledMaintenance method found, called only from
+    // postProcessAfterInitialization above to compute its scheduling period.
     private static Duration toDuration(ScheduledMaintenance annotation) {
+        log.debug("ScheduledMaintenanceRegistrar.toDuration invoked — called by ScheduledMaintenanceRegistrar.postProcessAfterInitialization");
         return switch (annotation.unit()) {
             case HOURS -> Duration.ofHours(annotation.interval());
             case DAYS -> Duration.ofDays(annotation.interval());

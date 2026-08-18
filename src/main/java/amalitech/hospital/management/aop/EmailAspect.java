@@ -65,8 +65,11 @@ public class EmailAspect {
     @Value("${app.support-email}")
     private String supportEmail;
 
+    // Fires for every @SendTemplatedEmail call — e.g. MailService.sendOtpEmail,
+    // sendPasswordResetEmail, etc., triggered from AuthService/UserService.
     @Around("@annotation(sendTemplatedEmail)")
     public Object executeSendTemplatedEmail(ProceedingJoinPoint pjp, SendTemplatedEmail sendTemplatedEmail) {
+        log.debug("EmailAspect.executeSendTemplatedEmail invoked — called by the @SendTemplatedEmail-annotated MailService method just proxied through");
         Object[] args = pjp.getArgs();
         String templateName = sendTemplatedEmail.value();
 
@@ -144,7 +147,10 @@ public class EmailAspect {
         return null;
     }
 
+    // Fires once per rendered email, called only from executeSendTemplatedEmail above
+    // after the template variables for the requested case have been built.
     private void send(String toEmail, String subject, String html, String templateName) {
+        log.debug("EmailAspect.send invoked — called by EmailAspect.executeSendTemplatedEmail");
         try {
             MimeMessage message = mailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, "UTF-8");

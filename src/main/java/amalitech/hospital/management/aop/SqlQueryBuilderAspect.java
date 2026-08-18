@@ -8,6 +8,8 @@ import lombok.RequiredArgsConstructor;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 @Aspect
@@ -15,10 +17,15 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class SqlQueryBuilderAspect {
 
+    private static final Logger log = LoggerFactory.getLogger(SqlQueryBuilderAspect.class);
+
     private final EntityManager entityManager;
 
+    // Fires for every @SqlQueryBuilder call — e.g. RoleService.findRolesWithPermissionCount,
+    // DoctorService.findDoctorsByDepartment, DepartmentService.findDepartmentsWithDoctorCounts.
     @Around("@annotation(sqlQueryBuilder)")
     public Object executeSqlQuery(ProceedingJoinPoint pjp, SqlQueryBuilder sqlQueryBuilder) {
+        log.debug("SqlQueryBuilderAspect.executeSqlQuery invoked — called by the @SqlQueryBuilder-annotated service method's self-proxy call");
         // Example: build a query dynamically based on annotation value
         String queryName = sqlQueryBuilder.value();
 

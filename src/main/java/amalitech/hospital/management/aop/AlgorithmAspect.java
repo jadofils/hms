@@ -5,6 +5,8 @@ import amalitech.hospital.management.utils.AlgorithmUtils;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.util.Comparator;
@@ -15,8 +17,13 @@ import java.util.function.Function;
 @Component
 public class AlgorithmAspect {
 
+    private static final Logger log = LoggerFactory.getLogger(AlgorithmAspect.class);
+
+    // Fires for every @ApplyAlgorithm call — e.g. RoleService.sort (via getRolePermissions)
+    // or AppointmentService.sort/search (via throwIfDoctorDoubleBooked).
     @Around("@annotation(applyAlgorithm)")
     public Object executeAlgorithm(ProceedingJoinPoint pjp, ApplyAlgorithm applyAlgorithm) throws Throwable {
+        log.debug("AlgorithmAspect.executeAlgorithm invoked — called by the @ApplyAlgorithm-annotated service method's self-proxy call");
         Object[] args = pjp.getArgs();
         String algorithm = applyAlgorithm.value();
 

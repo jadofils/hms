@@ -8,6 +8,8 @@ import lombok.RequiredArgsConstructor;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashMap;
@@ -33,10 +35,16 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class FindUserDataAspect {
 
+    private static final Logger log = LoggerFactory.getLogger(FindUserDataAspect.class);
+
     private final EntityManager entityManager;
 
+    // Fires for every @FindUserData call — e.g. UserService.findUsersPage,
+    // RoleService.findAssignedRolesPage, PatientService.findPatientsPage,
+    // AuthService.findUserByEmail — via the annotated method's self-proxy call.
     @Around("@annotation(findUserData)")
     public Object executeFindUserData(ProceedingJoinPoint pjp, FindUserData findUserData) {
+        log.debug("FindUserDataAspect.executeFindUserData invoked — called by the @FindUserData-annotated service method's self-proxy call");
         Object[] args = pjp.getArgs();
         boolean paginated = args.length >= 2 && args[0] instanceof Integer && args[1] instanceof Integer;
 
@@ -86,7 +94,10 @@ public class FindUserDataAspect {
         return new PagedRawResult(rows, total.longValue());
     }
 
+    // Fires once per executeFindUserData call, called only from that method (and from
+    // sortableColumnsFor below) to get the domain's SELECT column list.
     private String[] selectColumnsFor(String domain) {
+        log.debug("FindUserDataAspect.selectColumnsFor invoked — called by FindUserDataAspect.executeFindUserData/sortableColumnsFor");
         return switch (domain) {
             case "user" -> new String[]{"u.user_id", "u.username", "u.email", "u.is_active"};
             case "role" -> new String[]{"r.role_id", "r.role_name"};
@@ -127,7 +138,10 @@ public class FindUserDataAspect {
      * underlying snake_case DB column ({@code "is_active"}) without the caller needing
      * to know which convention the column itself uses.
      */
+    // Fires for a paginated @FindUserData call, called only from resolveSortColumn below
+    // while validating a caller-supplied sortBy against the domain's own SELECT list.
     private Map<String, String> sortableColumnsFor(String domain) {
+        log.debug("FindUserDataAspect.sortableColumnsFor invoked — called by FindUserDataAspect.resolveSortColumn");
         Map<String, String> columns = new LinkedHashMap<>();
         for (String column : selectColumnsFor(domain)) {
             // A single literal space each side (not \s+ repeated) — every selectColumnsFor
@@ -146,7 +160,10 @@ public class FindUserDataAspect {
 
     /** Resolves a caller-supplied sort column against the domain's whitelist, falling
      *  back to the first selected column when it's missing, blank, or not recognized. */
+    // Fires for a paginated @FindUserData call, called only from executeFindUserData
+    // above to resolve the caller's sortBy (e.g. from UserService.getUsers) safely.
     private String resolveSortColumn(String domain, String sortBy) {
+        log.debug("FindUserDataAspect.resolveSortColumn invoked — called by FindUserDataAspect.executeFindUserData");
         Map<String, String> sortable = sortableColumnsFor(domain);
         String resolved = sortBy == null ? null : sortable.get(normalize(sortBy));
         return resolved != null ? resolved : sortable.values().iterator().next();
@@ -154,11 +171,17 @@ public class FindUserDataAspect {
 
     /** Lowercases and strips underscores so {@code "isActive"}/{@code "is_active"}/
      *  {@code "IS_ACTIVE"} all compare equal. */
+    // Fires for a paginated @FindUserData call, called only from sortableColumnsFor and
+    // resolveSortColumn above to make column-name comparisons case/underscore-insensitive.
     private String normalize(String name) {
+        log.debug("FindUserDataAspect.normalize invoked — called by FindUserDataAspect.sortableColumnsFor/resolveSortColumn");
         return name.trim().toLowerCase(Locale.ROOT).replace("_", "");
     }
 
+    // Fires for every @FindUserData call, called only from executeFindUserData above to
+    // assemble the domain-specific QueryBuilder before it's rendered and run.
     private QueryBuilder buildQuery(FindUserData findUserData, String filter1, String filter2, String... selectCols) {
+        log.debug("FindUserDataAspect.buildQuery invoked — called by FindUserDataAspect.executeFindUserData");
         QueryBuilder builder;
         switch (findUserData.domain()) {
             case "user" -> {
@@ -237,7 +260,10 @@ public class FindUserDataAspect {
      *  fan out into N duplicate rows (see {@link #buildQuery}'s {@code .distinct()} on
      *  those two cases), so the accompanying count must dedupe on the same primary key
      *  rather than counting every join row via a plain {@code COUNT(*)}. */
+    // Fires for a paginated @FindUserData call, called only from executeFindUserData
+    // above to build the matching total-count query for role/permission's deduped joins.
     private String countExpressionFor(String domain) {
+        log.debug("FindUserDataAspect.countExpressionFor invoked — called by FindUserDataAspect.executeFindUserData");
         return switch (domain) {
             case "role" -> "COUNT(DISTINCT r.role_id)";
             case "permission" -> "COUNT(DISTINCT p.permission_id)";
@@ -249,7 +275,10 @@ public class FindUserDataAspect {
      *  containing one (a single quote is a legal character in an email's local part, and
      *  the {@code @Email} validator that runs before this doesn't reject it) can't break
      *  out of the quoted literal it's concatenated into. */
+    // Fires only for domain="user" with an email filter, called from buildQuery above
+    // (AuthService.findUserByEmail's forgot-password lookup) to guard against injection.
     private String escapeSqlLiteral(String value) {
+        log.debug("FindUserDataAspect.escapeSqlLiteral invoked — called by FindUserDataAspect.buildQuery");
         return value.replace("'", "''");
     }
 }

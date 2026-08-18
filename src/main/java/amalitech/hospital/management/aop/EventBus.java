@@ -46,8 +46,11 @@ public class EventBus {
     private final Map<String, Subscriber> subscribersByName = new ConcurrentHashMap<>();
     private final Map<Class<?>, List<Subscriber>> subscribersByEvent = new ConcurrentHashMap<>();
 
+    // Fires once at application startup (@PostConstruct), right after this bean is
+    // constructed — not triggered by any service call.
     @PostConstruct
     void scanForSubscribers() {
+        log.debug("EventBus.scanForSubscribers invoked — called once by Spring at bean startup (@PostConstruct)");
         for (String beanName : applicationContext.getBeanDefinitionNames()) {
             Object bean;
             try {
@@ -69,7 +72,10 @@ public class EventBus {
         }
     }
 
+    // Fires once per discovered @Subscribe method, called only from scanForSubscribers
+    // above while it walks every bean at startup.
     private void register(Subscribe annotation, Object bean, Method method) {
+        log.debug("EventBus.register invoked — called by EventBus.scanForSubscribers");
         Subscriber subscriber = new Subscriber(annotation.name(), annotation.event(), bean, method, new AtomicBoolean(true));
         subscribersByName.put(annotation.name(), subscriber);
         subscribersByEvent.computeIfAbsent(annotation.event(), key -> new CopyOnWriteArrayList<>()).add(subscriber);
@@ -84,7 +90,11 @@ public class EventBus {
      * "cross-cutting concern never breaks the real work" principle
      * {@code EmailAspect}/{@code LoggingAspect} already follow.
      */
+    // Fires whenever a domain service publishes a create event — e.g.
+    // AppointmentService.createAppointment, PrescriptionService.createPrescription,
+    // LabResultService.createLabResult, InvoiceService.createInvoice.
     public void publish(Object event) {
+        log.debug("EventBus.publish invoked — called by a domain service after a successful create (e.g. AppointmentService.createAppointment)");
         List<Subscriber> subscribers = subscribersByEvent.get(event.getClass());
         if (subscribers == null) {
             return;
@@ -102,7 +112,10 @@ public class EventBus {
         }
     }
 
+    // Fires when an admin lists subscribers — called by
+    // EventSubscriptionController.getSubscribers.
     public List<SubscriberStatus> listSubscribers() {
+        log.debug("EventBus.listSubscribers invoked — called by EventSubscriptionController.getSubscribers");
         return subscribersByName.values().stream()
                 .map(s -> new SubscriberStatus(s.name, s.eventType.getSimpleName(), s.enabled.get()))
                 .toList();
@@ -110,7 +123,10 @@ public class EventBus {
 
     /** Flips a subscriber's enabled flag — the actual "subscribe"/"unsubscribe" toggle;
      *  {@link #publish} just skips disabled entries, rather than deregistering anything. */
+    // Fires when an admin toggles a subscriber — called by
+    // EventSubscriptionController.subscribe/unsubscribe.
     public void setEnabled(String name, boolean enabled) {
+        log.debug("EventBus.setEnabled invoked — called by EventSubscriptionController.subscribe/unsubscribe");
         Subscriber subscriber = subscribersByName.get(name);
         if (subscriber == null) {
             throw new NotFoundException("No such event subscriber: " + name);

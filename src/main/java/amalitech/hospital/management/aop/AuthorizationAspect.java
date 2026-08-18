@@ -7,6 +7,8 @@ import amalitech.hospital.management.repository.user.role.RolePermissionReposito
 import lombok.RequiredArgsConstructor;
 import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.annotation.Before;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -33,10 +35,15 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class AuthorizationAspect {
 
+    private static final Logger log = LoggerFactory.getLogger(AuthorizationAspect.class);
+
     private final RolePermissionRepository rolePermissionRepository;
 
+    // Fires before every @RequirePermission controller method — e.g. UserController.getUsers,
+    // DoctorController.createDoctor — before the controller body (and service layer) runs.
     @Before("@annotation(requirePermission)")
     public void checkPermission(RequirePermission requirePermission) {
+        log.debug("AuthorizationAspect.checkPermission invoked — called before every @RequirePermission-annotated controller method");
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (!(authentication != null && authentication.getPrincipal() instanceof AuthenticatedUser user)) {
             throw new UnauthorizedException("No token provided");

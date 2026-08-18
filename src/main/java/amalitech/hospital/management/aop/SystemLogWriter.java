@@ -3,6 +3,8 @@ package amalitech.hospital.management.aop;
 import amalitech.hospital.management.model.user.logs.SystemLog;
 import amalitech.hospital.management.repository.user.logs.SystemLogRepository;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,10 +29,15 @@ import java.time.ZoneId;
 @RequiredArgsConstructor
 public class SystemLogWriter {
 
+    private static final Logger log = LoggerFactory.getLogger(SystemLogWriter.class);
+
     private final SystemLogRepository systemLogRepository;
 
+    // Fires only when a service-layer call fails, called by LoggingAspect.persistFailure
+    // (its failure branch) in a fresh REQUIRES_NEW transaction.
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void record(String logLevel, String source, String message) {
+        log.debug("SystemLogWriter.record invoked — called by LoggingAspect.persistFailure");
         SystemLog entry = new SystemLog();
         entry.setLogLevel(logLevel);
         entry.setSource(source);

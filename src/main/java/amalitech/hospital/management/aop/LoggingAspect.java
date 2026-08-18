@@ -58,10 +58,17 @@ public class LoggingAspect {
 
     private final SystemLogWriter systemLogWriter;
 
+    // Matching declaration only — never executed itself; AspectJ uses this signature to
+    // match every method call in the service package (e.g. RoleService.createRole).
     @Pointcut("execution(* amalitech.hospital.management.service..*(..))")
     public void serviceLayer() {
     }
 
+    // Fires before every service-layer method call — e.g. RoleService.createRole,
+    // UserService.getUsers — matched by the serviceLayer() pointcut above. No separate
+    // "invoked" debug line here: the log.info below already names the real class/method
+    // on every single call, so a second static line would only double this aspect's
+    // already-highest-frequency-in-the-app log volume for zero extra information.
     @Before("serviceLayer()")
     public void logEntry(JoinPoint joinPoint) {
         log.info("→ {}.{}() [{} arg(s)]",
@@ -70,6 +77,8 @@ public class LoggingAspect {
                 joinPoint.getArgs().length);
     }
 
+    // Fires after every service-layer method call finishes, success or failure —
+    // matched by the same serviceLayer() pointcut as logEntry above.
     @After("serviceLayer()")
     public void logExit(JoinPoint joinPoint) {
         log.debug("← {}.{}() completed",
@@ -87,6 +96,10 @@ public class LoggingAspect {
      * else upstream matching on exception type) keep working exactly as if this aspect
      * didn't exist.
      */
+    // Fires around every service-layer method call, timing it and rethrowing any
+    // failure unchanged — matched by the same serviceLayer() pointcut as logEntry. Same
+    // "no redundant static debug line" reasoning as logEntry above — its own success/
+    // failure log a few lines down already names the real class/method per call.
     @SuppressWarnings("java:S2139")
     @Around("serviceLayer()")
     public Object logTiming(ProceedingJoinPoint joinPoint) throws Throwable {
@@ -111,7 +124,10 @@ public class LoggingAspect {
      *  persist the log entry itself must never mask the real exception the caller is
      *  about to see — this is purely a side-channel record, not part of the actual
      *  call's outcome. */
+    // Fires only when a service-layer call fails, called from logTiming's catch block
+    // above to persist the failure via SystemLogWriter.record.
     private void persistFailure(String className, String methodName, Throwable ex) {
+        log.debug("LoggingAspect.persistFailure invoked — called by LoggingAspect.logTiming's failure branch");
         try {
             systemLogWriter.record("ERROR", className + "." + methodName, ex.getMessage());
         } catch (Exception loggingFailure) {

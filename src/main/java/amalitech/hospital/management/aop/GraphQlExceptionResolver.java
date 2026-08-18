@@ -57,8 +57,12 @@ public class GraphQlExceptionResolver extends DataFetcherExceptionResolverAdapte
 
     private static final Logger log = LoggerFactory.getLogger(GraphQlExceptionResolver.class);
 
+    // Fires for any exception escaping a GraphQL resolver — e.g. UserResolver.users
+    // hitting a NotFoundException, or a resolver's @RequirePermission check throwing
+    // AccessDeniedException via AuthorizationAspect.
     @Override
     protected GraphQLError resolveToSingleError(Throwable ex, DataFetchingEnvironment env) {
+        log.debug("GraphQlExceptionResolver.resolveToSingleError invoked — called by Spring for GraphQL for any exception a resolver throws");
         // ── Our own exceptions — same classification GlobalExceptionHandler gives them ──
         if (ex instanceof NotFoundException notFound) {
             return build(env, HttpStatus.NOT_FOUND, ErrorType.NOT_FOUND, notFound.getMessage());
@@ -133,12 +137,18 @@ public class GraphQlExceptionResolver extends DataFetcherExceptionResolverAdapte
         return build(env, HttpStatus.INTERNAL_SERVER_ERROR, ErrorType.INTERNAL_ERROR, "An unexpected error occurred");
     }
 
+    // Fires only for a ConstraintViolationException, called from resolveToSingleError
+    // above to shorten each violation's property path to its last segment.
     private static String lastPathSegment(String propertyPath) {
+        log.debug("GraphQlExceptionResolver.lastPathSegment invoked — called by GraphQlExceptionResolver.resolveToSingleError");
         int lastDot = propertyPath.lastIndexOf('.');
         return lastDot >= 0 ? propertyPath.substring(lastDot + 1) : propertyPath;
     }
 
+    // Fires once per resolved error, called only from resolveToSingleError above to
+    // build the final GraphQLError with its status/error extensions.
     private GraphQLError build(DataFetchingEnvironment env, HttpStatus status, ErrorType errorType, String message) {
+        log.debug("GraphQlExceptionResolver.build invoked — called by GraphQlExceptionResolver.resolveToSingleError");
         Map<String, Object> extensions = new LinkedHashMap<>();
         extensions.put("status", status.value());
         extensions.put("error", status.getReasonPhrase());

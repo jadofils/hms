@@ -48,52 +48,77 @@ public class GlobalExceptionHandler {
 
     // ── Our own exceptions ───────────────────────────────────────────────────
 
+    // Fires when e.g. RoleService.findRoleOrThrow (via getRole/updateRole/deleteRole)
+    // throws NotFoundException for an unknown roleId.
     @ExceptionHandler(NotFoundException.class)
     public ResponseEntity<ErrorResponse> handleNotFound(NotFoundException ex) {
+        log.debug("GlobalExceptionHandler.handleNotFound invoked — called when a controller/service throws NotFoundException (e.g. RoleService.findRoleOrThrow)");
         return buildResponse(HttpStatus.NOT_FOUND, ex.getMessage());
     }
 
+    // Fires when e.g. AuthService.resetPassword throws BadRequestException for an
+    // invalid/expired reset token.
     @ExceptionHandler(BadRequestException.class)
     public ResponseEntity<ErrorResponse> handleBadRequest(BadRequestException ex) {
+        log.debug("GlobalExceptionHandler.handleBadRequest invoked — called when a controller/service throws BadRequestException (e.g. AuthService.resetPassword)");
         return buildResponse(HttpStatus.BAD_REQUEST, ex.getMessage());
     }
 
+    // Fires when e.g. AuthorizationAspect.checkPermission throws UnauthorizedException
+    // for a request with no valid Bearer token.
     @ExceptionHandler(UnauthorizedException.class)
     public ResponseEntity<ErrorResponse> handleUnauthorized(UnauthorizedException ex) {
+        log.debug("GlobalExceptionHandler.handleUnauthorized invoked — called when a controller/service throws UnauthorizedException (e.g. AuthorizationAspect.checkPermission)");
         return buildResponse(HttpStatus.UNAUTHORIZED, ex.getMessage());
     }
 
+    // Fires when e.g. RoleService.updateRole/deleteRole throws ConflictException for a
+    // role still assigned to a user.
     @ExceptionHandler(ConflictException.class)
     public ResponseEntity<ErrorResponse> handleConflict(ConflictException ex) {
+        log.debug("GlobalExceptionHandler.handleConflict invoked — called when a controller/service throws ConflictException (e.g. RoleService.updateRole)");
         return buildResponse(HttpStatus.CONFLICT, ex.getMessage());
     }
 
+    // Fires when any service throws InternalServerException for an unrecoverable
+    // failure it deliberately chose not to let surface as a raw 500.
     @ExceptionHandler(InternalServerException.class)
     public ResponseEntity<ErrorResponse> handleInternal(InternalServerException ex) {
+        log.debug("GlobalExceptionHandler.handleInternal invoked — called when a service throws InternalServerException");
         log.error("Internal server exception", ex);
         return buildResponse(HttpStatus.INTERNAL_SERVER_ERROR, ex.getMessage());
     }
 
+    // Fires when a service throws the checked UserCheckedException (e.g. a
+    // user-domain validation failure surfaced from a checked-exception code path).
     @ExceptionHandler(UserCheckedException.class)
     public ResponseEntity<ErrorResponse> handleUserChecked(UserCheckedException ex) {
+        log.debug("GlobalExceptionHandler.handleUserChecked invoked — called when a service throws UserCheckedException");
         return buildResponse(HttpStatus.BAD_REQUEST, ex.getMessage());
     }
 
+    // Fires when a service throws the checked RoleCheckedException.
     @ExceptionHandler(RoleCheckedException.class)
     public ResponseEntity<ErrorResponse> handleRoleChecked(RoleCheckedException ex) {
+        log.debug("GlobalExceptionHandler.handleRoleChecked invoked — called when a service throws RoleCheckedException");
         return buildResponse(HttpStatus.BAD_REQUEST, ex.getMessage());
     }
 
+    // Fires when a service throws the checked PermissionCheckedException.
     @ExceptionHandler(PermissionCheckedException.class)
     public ResponseEntity<ErrorResponse> handlePermissionChecked(PermissionCheckedException ex) {
+        log.debug("GlobalExceptionHandler.handlePermissionChecked invoked — called when a service throws PermissionCheckedException");
         return buildResponse(HttpStatus.BAD_REQUEST, ex.getMessage());
     }
 
     // ── Framework exceptions that would otherwise bypass this class entirely ───
 
     /** {@code @Valid} failures on {@code @RequestBody} DTOs. */
+    // Fires when a @Valid @RequestBody DTO (e.g. RoleRequest) fails bean validation on
+    // any controller's create/update endpoint.
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ErrorResponse> handleValidation(MethodArgumentNotValidException ex) {
+        log.debug("GlobalExceptionHandler.handleValidation invoked — called when a @Valid @RequestBody DTO fails validation");
         String message = ex.getBindingResult().getFieldErrors().stream()
                 .map(fieldError -> fieldError.getField() + ": " + fieldError.getDefaultMessage())
                 .collect(Collectors.joining("; "));
@@ -116,8 +141,11 @@ public class GlobalExceptionHandler {
      * "; at [Source: ...]" location suffix on that innermost cause, which is stripped
      * below to keep every case's message equally clean.
      */
+    // Fires when a controller's @RequestBody can't be parsed — malformed JSON, or a
+    // field value that can't convert to its target type.
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ErrorResponse> handleUnreadableBody(HttpMessageNotReadableException ex) {
+        log.debug("GlobalExceptionHandler.handleUnreadableBody invoked — called when a controller's @RequestBody can't be parsed");
         log.warn("Malformed request body: {}", ex.getMessage());
         String cause = ex.getMostSpecificCause().getMessage();
         if (cause != null) {
@@ -129,15 +157,20 @@ public class GlobalExceptionHandler {
 
     /** Unique-constraint/not-null violations surfaced at the DB layer — e.g. a race
      *  condition that slips past an application-level existsBy... check. */
+    // Fires when e.g. RoleService.createRole races another request past its own
+    // existsByRoleName check and the DB's unique constraint rejects the insert.
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<ErrorResponse> handleDataIntegrityViolation(DataIntegrityViolationException ex) {
+        log.debug("GlobalExceptionHandler.handleDataIntegrityViolation invoked — called when a DB unique/not-null constraint is violated (e.g. RoleService.createRole racing a duplicate)");
         log.warn("Data integrity violation: {}", ex.getMessage());
         return buildResponse(HttpStatus.CONFLICT, "The request conflicts with existing data");
     }
 
     /** A row was concurrently modified/deleted between load and save. */
+    // Fires when a versioned entity update races another update between load and save.
     @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
     public ResponseEntity<ErrorResponse> handleOptimisticLock(ObjectOptimisticLockingFailureException ex) {
+        log.debug("GlobalExceptionHandler.handleOptimisticLock invoked — called when a versioned entity update races another update");
         log.warn("Optimistic locking failure: {}", ex.getMessage());
         return buildResponse(HttpStatus.CONFLICT, "This record was modified by another request — please retry");
     }
@@ -151,6 +184,7 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<ErrorResponse> handleAccessDenied(AccessDeniedException ex) {
+        log.debug("GlobalExceptionHandler.handleAccessDenied invoked — called when AuthorizationAspect.checkPermission (or Spring Security) throws AccessDeniedException");
         String message = ex.getMessage();
         return buildResponse(HttpStatus.FORBIDDEN,
                 message != null && !message.isBlank() ? message : "You do not have permission to perform this action");
@@ -167,6 +201,7 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler({PropertyReferenceException.class, InvalidDataAccessApiUsageException.class})
     public ResponseEntity<ErrorResponse> handleInvalidQueryUsage(Exception ex) {
+        log.debug("GlobalExceptionHandler.handleInvalidQueryUsage invoked — called for a bad ?sort= column on a findAll(Pageable) listing (e.g. GET /api/v1/roles?sort=bogusColumn)");
         log.warn("Invalid query usage: {}", ex.getMessage());
         return buildResponse(HttpStatus.BAD_REQUEST, "Invalid request parameter — check your sort/filter values");
     }
@@ -183,6 +218,7 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleUnexpected(Exception ex) {
+        log.debug("GlobalExceptionHandler.handleUnexpected invoked — called for any exception not mapped by a more specific handler above");
         if (ex instanceof org.springframework.web.ErrorResponse errorResponse) {
             HttpStatus status = HttpStatus.valueOf(errorResponse.getStatusCode().value());
             String detail = errorResponse.getBody().getDetail();
@@ -193,7 +229,10 @@ public class GlobalExceptionHandler {
         return buildResponse(HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected error occurred");
     }
 
+    // Fires once per handled exception, called only from the @ExceptionHandler methods
+    // above to assemble the shared ErrorResponse body.
     private ResponseEntity<ErrorResponse> buildResponse(HttpStatus status, String message) {
+        log.debug("GlobalExceptionHandler.buildResponse invoked — called by one of this class's @ExceptionHandler methods");
         return ResponseEntity.status(status).body(new ErrorResponse(status.value(), status.getReasonPhrase(), message));
     }
 }
