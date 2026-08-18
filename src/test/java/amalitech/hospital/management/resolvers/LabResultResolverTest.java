@@ -43,6 +43,8 @@ class LabResultResolverTest {
                 .execute()
                 .path("labResult.resultValue").entity(String.class).isEqualTo("5.2")
                 .path("labResult.isAbnormal").entity(Boolean.class).isEqualTo(false);
+
+        verify(labResultService).getResult("lab-1");
     }
 
     @Test
@@ -52,6 +54,8 @@ class LabResultResolverTest {
         graphQlTester.document("mutation { createLabResult(labOrderId: \"lab-1\", input: { resultValue: \"5.2\" }) { labResultId } }")
                 .execute()
                 .path("createLabResult.labResultId").entity(String.class).isEqualTo("result-1");
+
+        verify(labResultService).createResult(any(), any());
     }
 
     @Test

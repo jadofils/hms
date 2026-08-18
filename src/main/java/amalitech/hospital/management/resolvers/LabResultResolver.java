@@ -10,6 +10,7 @@ import org.springframework.graphql.data.method.annotation.MutationMapping;
 import org.springframework.graphql.data.method.annotation.QueryMapping;
 import org.springframework.stereotype.Controller;
 import org.springframework.validation.annotation.Validated;
+import io.micrometer.core.annotation.Timed;
 
 /**
  * GraphQL front door for {@link LabResultService} — see {@code UserResolver}'s Javadoc
@@ -17,6 +18,7 @@ import org.springframework.validation.annotation.Validated;
  */
 @Controller
 @Validated
+@Timed(value = "hms.graphql.requests", extraTags = {"layer", "graphql"}, percentiles = {0.5, 0.95, 0.99})
 @RequiredArgsConstructor
 public class LabResultResolver {
 
