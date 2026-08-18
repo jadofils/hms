@@ -1,5 +1,7 @@
 package amalitech.hospital.management.utils;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -24,9 +26,15 @@ import org.springframework.data.domain.Sort;
  */
 public final class GraphQlPaging {
 
+    private static final Logger log = LoggerFactory.getLogger(GraphQlPaging.class);
+
     private GraphQlPaging() {}
 
+    // Fires for every paginated GraphQL listing query — e.g. UserResolver.users,
+    // RoleResolver.roles, PatientResolver.patients — before delegating to the matching
+    // service's own get*(Pageable) method.
     public static Pageable of(int page, int size, String sort) {
+        log.debug("GraphQlPaging.of invoked — called by a paginated GraphQL resolver (e.g. UserResolver.users)");
         if (sort == null || sort.isBlank()) {
             return PageRequest.of(page, size);
         }
