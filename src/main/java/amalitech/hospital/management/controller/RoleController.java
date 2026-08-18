@@ -2,6 +2,7 @@ package amalitech.hospital.management.controller;
 
 import amalitech.hospital.management.annotation.RequirePermission;
 import amalitech.hospital.management.dto.common.ApiResult;
+import amalitech.hospital.management.dto.user.role.RolePermissionCountResponse;
 import amalitech.hospital.management.dto.user.role.RoleRequest;
 import amalitech.hospital.management.dto.user.role.RoleResponse;
 import amalitech.hospital.management.dto.user.role.permission.PermissionResponse;
@@ -24,6 +25,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import io.micrometer.core.annotation.Timed;
 
 /**
  * Role management — backed by {@link RoleService}. See that class for caching/
@@ -32,6 +34,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/v1/roles")
 @Tag(name = "Roles", description = "RBAC role management")
+@Timed(value = "hms.rest.requests", extraTags = {"layer", "rest"}, percentiles = {0.5, 0.95, 0.99})
 @RequiredArgsConstructor
 public class RoleController {
 
@@ -108,6 +111,39 @@ public class RoleController {
             @Parameter(description = "Role UUID") @PathVariable String roleId) {
         roleService.deleteRole(roleId);
         return ResponseEntity.noContent().build();
+    }
+
+    // ── Analytics ────────────────────────────────────────────────────────────
+    // Static segments ("summary"/"assigned") — Spring's PathPattern matcher always
+    // prefers a literal segment over "{roleId}" for the same request, regardless of
+    // declaration order, so these can't be shadowed by (or shadow) the lookup above.
+
+    @GetMapping("/summary")
+    @Operation(summary = "Role summary: permission count per role",
+            description = "Every active role plus how many permissions it currently holds — "
+                    + "an at-a-glance admin view backed by a `GROUP BY` aggregate query "
+                    + "(`@SqlQueryBuilder(\"findRolesWithPermissionCount\")`), instead of paging "
+                    + "through `GET /api/v1/roles` and calling "
+                    + "`GET /api/v1/roles/{roleId}/permissions` once per role.")
+    @ApiResponse(responseCode = "200", description = "Summary returned")
+    @RequirePermission(resource = Resource.ROLES, action = PermissionAction.READ)
+    public ResponseEntity<ApiResult<List<RolePermissionCountResponse>>> getRolePermissionSummary() {
+        return ResponseEntity.ok(ApiResult.of("Role permission summary retrieved", roleService.getRolePermissionSummary()));
+    }
+
+    @GetMapping("/assigned")
+    @Operation(summary = "List roles currently assigned to at least one active user (paginated, sortable)",
+            description = "Distinct from `GET /api/v1/roles` (every role in the catalog, assigned "
+                    + "or not) — useful for an admin audit/cleanup view, or a \"currently in-use\" "
+                    + "dropdown, without pulling every unassigned role along with it. Standard "
+                    + "`?sort=property,direction` query param; sortable columns: `roleId`, `roleName`.")
+    @ApiResponse(responseCode = "200", description = "Assigned roles returned")
+    @Parameter(name = "sort", in = ParameterIn.QUERY,
+            description = "Sort by property,direction. Possible properties: roleId, roleName.",
+            array = @ArraySchema(schema = @Schema(type = "string")), example = "roleName,asc")
+    @RequirePermission(resource = Resource.ROLES, action = PermissionAction.READ)
+    public ResponseEntity<ApiResult<PagedModel<RoleResponse>>> getAssignedRoles(Pageable pageable) {
+        return ResponseEntity.ok(ApiResult.of("Assigned roles retrieved", roleService.getAssignedRoles(pageable)));
     }
 
     // ── Permission assignment ─────────────────────────────────────────────────
