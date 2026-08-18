@@ -63,6 +63,8 @@ class LabOrderResolverTest {
                 .execute()
                 .path("labOrder.testName").entity(String.class).isEqualTo("Blood Panel")
                 .path("labOrder.result").valueIsNull();
+
+        verify(labOrderService).getLabOrder("lab-1");
     }
 
     @Test
@@ -78,6 +80,8 @@ class LabOrderResolverTest {
         graphQlTester.document("{ labOrder(labOrderId: \"lab-1\") { result { labResultId } } }")
                 .execute()
                 .path("labOrder.result.labResultId").entity(String.class).isEqualTo("result-1");
+
+        verify(labResultService).getResult("lab-1");
     }
 
     @Test
@@ -88,6 +92,8 @@ class LabOrderResolverTest {
                         "mutation { createLabOrder(input: { appointmentId: \"appt-1\", doctorId: \"doctor-1\", testName: \"Blood Panel\" }) { labOrderId } }")
                 .execute()
                 .path("createLabOrder.labOrderId").entity(String.class).isEqualTo("lab-1");
+
+        verify(labOrderService).createLabOrder(any());
     }
 
     @Test

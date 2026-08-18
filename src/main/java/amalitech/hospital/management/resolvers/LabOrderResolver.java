@@ -12,7 +12,7 @@ import amalitech.hospital.management.service.LabOrderService;
 import amalitech.hospital.management.service.LabResultService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.PageRequest;
+import amalitech.hospital.management.utils.GraphQlPaging;
 import org.springframework.graphql.data.method.annotation.Argument;
 import org.springframework.graphql.data.method.annotation.MutationMapping;
 import org.springframework.graphql.data.method.annotation.QueryMapping;
@@ -21,6 +21,7 @@ import org.springframework.stereotype.Controller;
 import org.springframework.validation.annotation.Validated;
 
 import java.util.List;
+import io.micrometer.core.annotation.Timed;
 
 /**
  * GraphQL front door for {@link LabOrderService} — see {@code UserResolver}'s Javadoc for
@@ -30,6 +31,7 @@ import java.util.List;
  */
 @Controller
 @Validated
+@Timed(value = "hms.graphql.requests", extraTags = {"layer", "graphql"}, percentiles = {0.5, 0.95, 0.99})
 @RequiredArgsConstructor
 public class LabOrderResolver {
 
@@ -39,8 +41,9 @@ public class LabOrderResolver {
     private final LabResultService labResultService;
 
     @QueryMapping
-    public List<LabOrderResponse> labOrders(@Argument int page, @Argument int size) {
-        return labOrderService.getLabOrders(PageRequest.of(page, size)).getContent();
+    public List<LabOrderResponse> labOrders(@Argument int page, @Argument int size, @Argument String sort,
+            @Argument String status) {
+        return labOrderService.getLabOrders(GraphQlPaging.of(page, size, sort), status).getContent();
     }
 
     @QueryMapping
