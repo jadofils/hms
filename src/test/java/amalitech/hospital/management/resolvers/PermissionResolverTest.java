@@ -16,6 +16,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /** Slice test for {@link PermissionResolver} — see {@code UserResolverTest}'s Javadoc for
@@ -47,6 +48,8 @@ class PermissionResolverTest {
                 .execute()
                 .path("permission.resource").entity(String.class).isEqualTo("users")
                 .path("permission.action").entity(String.class).isEqualTo("read");
+
+        verify(permissionService).getPermission("perm-1");
     }
 
     @Test
@@ -57,5 +60,7 @@ class PermissionResolverTest {
         graphQlTester.document("{ permissions(page: 0, size: 20) { permissionId } }")
                 .execute()
                 .path("permissions[0].permissionId").entity(String.class).isEqualTo("perm-1");
+
+        verify(permissionService).getPermissions(any());
     }
 }
