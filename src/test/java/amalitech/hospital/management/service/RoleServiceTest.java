@@ -1,5 +1,6 @@
 package amalitech.hospital.management.service;
 
+import amalitech.hospital.management.dto.user.role.RolePermissionCountResponse;
 import amalitech.hospital.management.dto.user.role.RoleRequest;
 import amalitech.hospital.management.dto.user.role.RoleResponse;
 import amalitech.hospital.management.dto.user.role.permission.PermissionResponse;
@@ -13,6 +14,7 @@ import amalitech.hospital.management.repository.user.UserRoleRepository;
 import amalitech.hospital.management.repository.user.role.PermissionRepository;
 import amalitech.hospital.management.repository.user.role.RolePermissionRepository;
 import amalitech.hospital.management.repository.user.role.RoleRepository;
+import amalitech.hospital.management.utils.filters.PagedRawResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -22,6 +24,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PagedModel;
 
 import java.time.LocalDateTime;
@@ -32,6 +35,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -158,25 +162,23 @@ class RoleServiceTest {
 
     @Test
     void createRole_grantsEachPermission_whenPermissionIdsProvided() {
+        // grantPermission is called as self.grantPermission(...) (see createRole's own
+        // comment on why — not just this.grantPermission(...)), so its own cascade
+        // (permissionRepository/rolePermissionRepository interactions) is exercised by
+        // grantPermission's own dedicated tests below, not re-verified here; this only
+        // checks createRole correctly delegates once per requested permission id.
         when(roleRepository.existsByRoleName("Nurse")).thenReturn(false);
         Role newRole = new Role();
         newRole.setRoleId("role-2");
         when(roleRepository.save(any(Role.class))).thenReturn(newRole);
-        when(roleRepository.findById("role-2")).thenReturn(Optional.of(newRole));
-        Permission permission = new Permission();
-        permission.setPermissionId("perm-1");
-        when(permissionRepository.findById("perm-1")).thenReturn(Optional.of(permission));
-        when(rolePermissionRepository.findByIdRoleIdAndIdPermissionId("role-2", "perm-1"))
-                .thenReturn(Optional.empty());
         RoleRequest request = requestFor("Nurse", null);
-        request.setPermissionIds(List.of("perm-1"));
+        request.setPermissionIds(List.of("perm-1", "perm-2"));
 
         RoleResponse response = roleService.createRole(request);
 
         assertThat(response.getRoleId()).isEqualTo("role-2");
-        ArgumentCaptor<RolePermission> captor = ArgumentCaptor.forClass(RolePermission.class);
-        verify(rolePermissionRepository).save(captor.capture());
-        assertThat(captor.getValue().getId()).isEqualTo(idFor("role-2", "perm-1"));
+        verify(self).grantPermission("role-2", "perm-1");
+        verify(self).grantPermission("role-2", "perm-2");
     }
 
     @Test
@@ -185,8 +187,8 @@ class RoleServiceTest {
         Role newRole = new Role();
         newRole.setRoleId("role-2");
         when(roleRepository.save(any(Role.class))).thenReturn(newRole);
-        when(roleRepository.findById("role-2")).thenReturn(Optional.of(newRole));
-        when(permissionRepository.findById("bogus-perm")).thenReturn(Optional.empty());
+        doThrow(new NotFoundException("Permission not found: bogus-perm"))
+                .when(self).grantPermission("role-2", "bogus-perm");
         RoleRequest request = requestFor("Nurse", null);
         request.setPermissionIds(List.of("bogus-perm"));
 
@@ -250,6 +252,54 @@ class RoleServiceTest {
                 .isInstanceOf(ConflictException.class)
                 .hasMessageContaining("still assigned");
         verify(roleRepository, never()).save(any());
+    }
+
+    // ── getAssignedRoles (AOP-driven pagination) ────────────────────────────
+
+    @Test
+    void getAssignedRoles_mapsRawRowsAndTotalIntoPagedModel() {
+        Object[] row = {"role-1", "Admin"};
+        when(self.findAssignedRolesPage(0, 20, null, null))
+                .thenReturn(new PagedRawResult(List.of((Object) row), 1L));
+
+        PagedModel<RoleResponse> result = roleService.getAssignedRoles(PageRequest.of(0, 20));
+
+        assertThat(result.getContent()).hasSize(1);
+        assertThat(result.getContent().get(0).getRoleId()).isEqualTo("role-1");
+        assertThat(result.getContent().get(0).getRoleName()).isEqualTo("Admin");
+        assertThat(result.getMetadata().totalElements()).isEqualTo(1);
+    }
+
+    @Test
+    void getAssignedRoles_passesRequestedSortColumnAndDirectionThrough() {
+        when(self.findAssignedRolesPage(0, 20, "roleName", "DESC"))
+                .thenReturn(new PagedRawResult(List.of(), 0L));
+
+        roleService.getAssignedRoles(PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "roleName")));
+
+        verify(self).findAssignedRolesPage(0, 20, "roleName", "DESC");
+    }
+
+    // ── getRolePermissionSummary (AOP-driven native query) ──────────────────
+
+    @Test
+    void getRolePermissionSummary_mapsRawRowsIntoResponses() {
+        Object[] row = {"role-1", "Admin", 12L};
+        when(self.findRolesWithPermissionCount()).thenReturn(List.<Object[]>of(row));
+
+        List<RolePermissionCountResponse> result = roleService.getRolePermissionSummary();
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getRoleId()).isEqualTo("role-1");
+        assertThat(result.get(0).getRoleName()).isEqualTo("Admin");
+        assertThat(result.get(0).getPermissionCount()).isEqualTo(12L);
+    }
+
+    @Test
+    void getRolePermissionSummary_returnsEmptyList_whenNoRoleExists() {
+        when(self.findRolesWithPermissionCount()).thenReturn(List.of());
+
+        assertThat(roleService.getRolePermissionSummary()).isEmpty();
     }
 
     // ── permission grants ────────────────────────────────────────────────────

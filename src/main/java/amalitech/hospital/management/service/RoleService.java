@@ -1,6 +1,9 @@
 package amalitech.hospital.management.service;
 
 import amalitech.hospital.management.annotation.ApplyAlgorithm;
+import amalitech.hospital.management.annotation.FindUserData;
+import amalitech.hospital.management.annotation.SqlQueryBuilder;
+import amalitech.hospital.management.dto.user.role.RolePermissionCountResponse;
 import amalitech.hospital.management.dto.user.role.RoleRequest;
 import amalitech.hospital.management.dto.user.role.RoleResponse;
 import amalitech.hospital.management.dto.user.role.permission.PermissionResponse;
@@ -14,17 +17,22 @@ import amalitech.hospital.management.repository.user.UserRoleRepository;
 import amalitech.hospital.management.repository.user.role.PermissionRepository;
 import amalitech.hospital.management.repository.user.role.RolePermissionRepository;
 import amalitech.hospital.management.repository.user.role.RoleRepository;
+import amalitech.hospital.management.utils.filters.PagedRawResult;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.CachePut;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PagedModel;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -57,6 +65,73 @@ public class RoleService {
         return new PagedModel<>(roleRepository.findAll(pageable).map(this::toResponse));
     }
 
+    /**
+     * Roles currently held by at least one active user — distinct from {@link #getRoles}
+     * (every role in the catalog, assigned or not). Useful for an admin audit/cleanup
+     * view, or a "currently in-use" dropdown, without a caller needing to pull every
+     * unassigned role along with it. AOP-driven native SQL (see
+     * {@code FindUserDataAspect}'s {@code "role"} case), the same pattern
+     * {@code UserService.getUsers} uses.
+     */
+    public PagedModel<RoleResponse> getAssignedRoles(Pageable pageable) {
+        Sort.Order order = pageable.getSort().stream().findFirst().orElse(null);
+        String sortBy = order != null ? order.getProperty() : null;
+        String sortDir = order != null ? order.getDirection().name() : null;
+        PagedRawResult raw = self.findAssignedRolesPage(pageable.getPageNumber(), pageable.getPageSize(), sortBy, sortDir);
+        List<RoleResponse> content = raw.rows().stream()
+                .map(row -> (Object[]) row)
+                .map(cols -> {
+                    RoleResponse response = new RoleResponse();
+                    response.setRoleId((String) cols[0]);
+                    response.setRoleName((String) cols[1]);
+                    return response;
+                })
+                .toList();
+        Page<RoleResponse> page = new PageImpl<>(content, pageable, raw.total());
+        return new PagedModel<>(page);
+    }
+
+    /**
+     * AOP entry point for {@code FindUserDataAspect} — must be called via {@link #self},
+     * never as {@code this.findAssignedRolesPage(...)}: Spring AOP proxies only
+     * intercept calls made through the proxy, so a same-class call would bypass the
+     * aspect and fall through to the body below.
+     */
+    @FindUserData(domain = "role")
+    public PagedRawResult findAssignedRolesPage(int page, int size, String sortBy, String sortDir) {
+        throw new IllegalStateException("FindUserDataAspect did not intercept this call");
+    }
+
+    /**
+     * Every active role plus how many permissions it currently holds — an admin-facing
+     * summary so a role's grant footprint is visible at a glance, instead of paging
+     * through {@link #getRoles} and calling {@link #getRolePermissions} once per role.
+     * Backed by a {@code GROUP BY} native query (see {@code SqlQueryBuilderAspect}'s
+     * {@code "findRolesWithPermissionCount"} case) rather than N+1 lookups.
+     */
+    public List<RolePermissionCountResponse> getRolePermissionSummary() {
+        return self.findRolesWithPermissionCount().stream()
+                .map(row -> {
+                    RolePermissionCountResponse response = new RolePermissionCountResponse();
+                    response.setRoleId((String) row[0]);
+                    response.setRoleName((String) row[1]);
+                    response.setPermissionCount(((Number) row[2]).longValue());
+                    return response;
+                })
+                .toList();
+    }
+
+    /**
+     * AOP entry point for {@code SqlQueryBuilderAspect} — must be called via
+     * {@link #self}, never as {@code this.findRolesWithPermissionCount()}: Spring AOP
+     * proxies only intercept calls made through the proxy, so a same-class call would
+     * bypass the aspect and fall through to the body below.
+     */
+    @SqlQueryBuilder("findRolesWithPermissionCount")
+    public List<Object[]> findRolesWithPermissionCount() {
+        throw new IllegalStateException("SqlQueryBuilderAspect did not intercept this call");
+    }
+
     @Cacheable(value = "roles", key = "#roleId")
     public RoleResponse getRole(String roleId) {
         RoleResponse response = toResponse(findRoleOrThrow(roleId));
@@ -75,7 +150,7 @@ public class RoleService {
         if (roleRepository.existsByRoleName(request.getRoleName())) {
             throw new ConflictException("Role '" + request.getRoleName() + "' already exists");
         }
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
         Role role = new Role();
         role.setRoleName(request.getRoleName());
         role.setDescription(request.getDescription());
@@ -85,7 +160,11 @@ public class RoleService {
 
         if (request.getPermissionIds() != null) {
             for (String permissionId : request.getPermissionIds()) {
-                grantPermission(saved.getRoleId(), permissionId);
+                // self.grantPermission(...), not this.grantPermission(...) — grantPermission
+                // is @Transactional, and a same-class call bypasses that proxy advice too,
+                // not just the custom @ApplyAlgorithm/@FindUserData/@SqlQueryBuilder aspects
+                // this self-injected field otherwise exists for.
+                self.grantPermission(saved.getRoleId(), permissionId);
             }
         }
 
@@ -103,7 +182,7 @@ public class RoleService {
         }
         role.setRoleName(request.getRoleName());
         role.setDescription(request.getDescription());
-        role.setUpdatedAt(LocalDateTime.now());
+        role.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
         return toResponse(roleRepository.save(role));
     }
 
@@ -112,7 +191,7 @@ public class RoleService {
     public void deleteRole(String roleId) {
         Role role = findRoleOrThrow(roleId);
         throwIfAssignedToAnyUser(roleId, "deleted");
-        role.setDeletedAt(LocalDateTime.now());
+        role.setDeletedAt(LocalDateTime.now(ZoneId.systemDefault()));
         roleRepository.save(role);
     }
 
@@ -185,7 +264,7 @@ public class RoleService {
         rolePermission.setId(id);
         rolePermission.setRole(role);
         rolePermission.setPermission(permission);
-        rolePermission.setCreatedAt(LocalDateTime.now());
+        rolePermission.setCreatedAt(LocalDateTime.now(ZoneId.systemDefault()));
         rolePermissionRepository.save(rolePermission);
     }
 
@@ -195,7 +274,7 @@ public class RoleService {
                 .findByIdRoleIdAndIdPermissionId(roleId, permissionId)
                 .filter(rp -> rp.getDeletedAt() == null)
                 .orElseThrow(() -> new NotFoundException("Role does not have this permission"));
-        rolePermission.setDeletedAt(LocalDateTime.now());
+        rolePermission.setDeletedAt(LocalDateTime.now(ZoneId.systemDefault()));
         rolePermissionRepository.save(rolePermission);
     }
 
