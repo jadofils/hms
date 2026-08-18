@@ -1,6 +1,7 @@
 package amalitech.hospital.management.resolvers;
 
 import amalitech.hospital.management.config.graphql.GraphQlConfig;
+import amalitech.hospital.management.dto.doctor.DoctorResponse;
 import amalitech.hospital.management.dto.user.UserResponse;
 import amalitech.hospital.management.dto.user.role.RoleResponse;
 import amalitech.hospital.management.service.UserService;
@@ -8,6 +9,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.graphql.test.autoconfigure.GraphQlTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.web.PagedModel;
 import org.springframework.graphql.test.tester.GraphQlTester;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
@@ -15,6 +19,7 @@ import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -58,18 +63,51 @@ class UserResolverTest {
     }
 
     @Test
-    void user_roles_delegatesToGetUserRoles() {
-        when(userService.getUser("user-1")).thenReturn(existingUser());
+    void user_roles_readsRolesAlreadyEagerLoadedOntoTheResponse_withoutASeparateCall() {
+        UserResponse response = existingUser();
         RoleResponse role = new RoleResponse();
         role.setRoleId("role-1");
         role.setRoleName("Admin");
-        when(userService.getUserRoles("user-1")).thenReturn(List.of(role));
+        response.setRoles(List.of(role));
+        when(userService.getUser("user-1")).thenReturn(response);
 
         graphQlTester.document("{ user(userId: \"user-1\") { roles { roleId roleName } } }")
                 .execute()
                 .path("user.roles[0].roleName").entity(String.class).isEqualTo("Admin");
 
-        verify(userService).getUserRoles("user-1");
+        // No dedicated @SchemaMapping for "roles" any more — UserService.getUser already
+        // eager-loads it onto UserResponse, so a per-row getUserRoles call would just
+        // reintroduce the N+1 that removal fixed.
+        verify(userService, never()).getUserRoles(any());
+    }
+
+    @Test
+    void user_doctor_readsDoctorAlreadyEagerLoadedOntoTheResponse() {
+        UserResponse response = existingUser();
+        DoctorResponse doctor = new DoctorResponse();
+        doctor.setDoctorId("doctor-1");
+        doctor.setFirstName("John");
+        response.setDoctor(doctor);
+        when(userService.getUser("user-1")).thenReturn(response);
+
+        graphQlTester.document("{ user(userId: \"user-1\") { doctor { doctorId firstName } } }")
+                .execute()
+                .path("user.doctor.doctorId").entity(String.class).isEqualTo("doctor-1")
+                .path("user.doctor.firstName").entity(String.class).isEqualTo("John");
+    }
+
+    @Test
+    void users_list_readsRolesAlreadyEagerLoadedOntoEachRow_withoutAPerRowCall() {
+        UserResponse response = existingUser();
+        RoleResponse role = new RoleResponse();
+        role.setRoleId("role-1");
+        role.setRoleName("Admin");
+        response.setRoles(List.of(role));
+        when(userService.getUsers(any())).thenReturn(new PagedModel<>(new PageImpl<>(List.of(response))));
+
+        graphQlTester.document("{ users(page: 0, size: 20) { userId roles { roleName } } }")
+                .execute()
+                .path("users[0].roles[0].roleName").entity(String.class).isEqualTo("Admin");
     }
 
     @Test
