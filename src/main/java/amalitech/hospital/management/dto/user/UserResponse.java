@@ -12,13 +12,21 @@ public class UserResponse {
     private String username;
     private String email;
     private Boolean isActive;
-    /** Not populated by the paginated listing or by create/update — only by the
-     *  single-item lookup ({@code UserService.getUser}), same convention as
-     *  {@code DoctorResponse.departments}. Each role here is eager-loaded down to its
-     *  own permissions too (see {@code UserService.toRoleResponse}), not just id/name. */
+    /** Populated by both the single-item lookup ({@code UserService.getUser}) and the
+     *  paginated listing ({@code UserService.getUsers}, via
+     *  {@code UserService.attachRolesAndDoctors}) — unlike most nested collections in
+     *  this codebase (e.g. {@code DoctorResponse.departments}), which are eager-loaded
+     *  only on the single-item lookup. Depth differs between the two: {@code getUser}
+     *  eager-loads each role down to its own permissions too ({@code
+     *  UserService.toRoleResponse}); the paginated listing deliberately stays shallower
+     *  — role id/name/description only, no nested permissions ({@code
+     *  UserService.toShallowRoleResponse}) — since expanding every listed user's every
+     *  role's full permission set is more than a listing needs. Empty (never {@code
+     *  null}) for a user holding no active role. */
     private List<RoleResponse> roles;
     /** {@code null} for a user with no linked doctor record ({@code User.doctor} is a
-     *  nullable FK) — populated the same way, only by {@code UserService.getUser},
+     *  nullable FK). Populated the same way as {@code roles} above — both by
+     *  {@code UserService.getUser} and by the paginated {@code UserService.getUsers} —
      *  reusing {@code DoctorService.getDoctor} so it comes back with its own departments
      *  already eager-loaded too. */
     private DoctorResponse doctor;
