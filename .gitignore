@@ -8,8 +8,9 @@ CLAUDE.md
 # Real secrets (DB/Redis passwords, encryption key, Gmail app password) — never commit
 .env
 
-# Claude Code local-only settings (per-machine MCP toggles, etc.)
-.claude/settings.local.json
+# Claude Code local session/tooling state (per-machine MCP toggles, settings, scheduled-
+# task locks, etc.) — none of it is meant to be shared or pushed.
+.claude/
 
 # Local SonarQube tooling scripts — sonarqube.cmd hardcodes this machine's SonarQube
 # install path, and jacoco.cmd is meant to hold a real Sonar auth token once filled in.
