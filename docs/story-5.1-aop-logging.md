@@ -73,6 +73,32 @@ literal-minimum edge case. Verified by a full `@SpringBootTest` context load aft
 fix (see Verification below) — this class of bug only surfaces at actual bean-creation
 time, not at compile time.
 
+**"Logging applied to service layer methods" — applied to every service, automatically,
+not opted into per class.** The pointcut is a package-wide wildcard
+(`execution(* amalitech.hospital.management.service..*(..))`), not an annotation a
+developer has to remember to add — every method on every class under `service/` (20
+classes as of this pass: `UserService`, `RoleService`, `PermissionService`,
+`PatientService`, `DoctorService`, `DepartmentService`, `DoctorScheduleService`,
+`AppointmentService`, `MedicationService`, `MedicalInventoryService`,
+`PrescriptionService`, `PrescriptionItemService`, `LabOrderService`, `LabResultService`,
+`InvoiceService`, `NotificationService`, `AuthService`, `MailService`,
+`MaintenanceService`, `NotificationEventListener`) gets the full `@Before`/`@After`/
+`@Around` triplet the moment it's called *through the Spring proxy* — a controller
+calling into a service, or a service calling into another service via an injected field,
+both qualify; a same-class self-invocation (`this.foo()` instead of `self.foo()`) is the
+one call shape Spring AOP proxies can never intercept (see `annotations-reference.md`'s
+Self-injection note), which is a general Spring AOP limitation, not something specific to
+`LoggingAspect` or something a new service has to opt into. Confirmed at runtime by two
+independent facts, not just the pointcut's own text: `aspectjweaver`/`spring-aop` are on
+the compile classpath (pulled in transitively — `mvn dependency:tree | grep aspectj`), and
+`spring.aop.auto` is never overridden to `false` anywhere in
+`application*.yaml`, so Spring Boot's default auto-proxy creator picks up every `@Aspect`
+bean including this one with no extra configuration. `LoggingAspectTest` exercises the
+failure branch through `PatientService` specifically only because it's a convenient,
+already-real service method to provoke a `NotFoundException` through — its own Javadoc
+says explicitly that nothing about the test is patient-specific, since the pointcut
+match is identical for every other service in the list above.
+
 ## Where in the codebase
 
 - `aop/LoggingAspect.java` — the aspect itself; its class-level Javadoc documents the
