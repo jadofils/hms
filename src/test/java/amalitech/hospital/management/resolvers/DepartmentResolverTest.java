@@ -43,6 +43,8 @@ class DepartmentResolverTest {
         graphQlTester.document("{ department(departmentId: \"dept-1\") { name } }")
                 .execute()
                 .path("department.name").entity(String.class).isEqualTo("Cardiology");
+
+        verify(departmentService).getDepartment("dept-1");
     }
 
     @Test
@@ -57,6 +59,8 @@ class DepartmentResolverTest {
         graphQlTester.document("{ department(departmentId: \"dept-1\") { doctors { doctorId } } }")
                 .execute()
                 .path("department.doctors[0].doctorId").entity(String.class).isEqualTo("doctor-1");
+
+        verify(departmentService).getDepartmentDoctors("dept-1");
     }
 
     @Test
@@ -66,6 +70,8 @@ class DepartmentResolverTest {
         graphQlTester.document("mutation { createDepartment(input: { name: \"Cardiology\" }) { departmentId } }")
                 .execute()
                 .path("createDepartment.departmentId").entity(String.class).isEqualTo("dept-1");
+
+        verify(departmentService).createDepartment(any());
     }
 
     @Test
