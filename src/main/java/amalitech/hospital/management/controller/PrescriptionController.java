@@ -21,6 +21,7 @@ import org.springframework.data.web.PagedModel;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import io.micrometer.core.annotation.Timed;
 
 /**
  * Prescription management — backed by {@link PrescriptionService}. See that class for
@@ -30,6 +31,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/v1/prescriptions")
 @Tag(name = "Prescriptions", description = "Prescriptions issued per appointment")
+@Timed(value = "hms.rest.requests", extraTags = {"layer", "rest"}, percentiles = {0.5, 0.95, 0.99})
 @RequiredArgsConstructor
 public class PrescriptionController {
 
