@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 /**
  * Medication catalog CRUD.
@@ -43,7 +44,7 @@ public class MedicationService {
         if (medicationRepository.existsByName(request.getName())) {
             throw new ConflictException("Medication '" + request.getName() + "' already exists");
         }
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
         Medication medication = new Medication();
         medication.setName(request.getName());
         medication.setGenericName(request.getGenericName());
@@ -66,7 +67,7 @@ public class MedicationService {
         medication.setGenericName(request.getGenericName());
         medication.setForm(request.getForm());
         medication.setUnitPrice(request.getUnitPrice());
-        medication.setUpdatedAt(LocalDateTime.now());
+        medication.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
         return toResponse(medicationRepository.save(medication));
     }
 
@@ -74,7 +75,7 @@ public class MedicationService {
     @CacheEvict(value = "medications", key = "#medicationId")
     public void deleteMedication(String medicationId) {
         Medication medication = findMedicationOrThrow(medicationId);
-        medication.setDeletedAt(LocalDateTime.now());
+        medication.setDeletedAt(LocalDateTime.now(ZoneId.systemDefault()));
         medicationRepository.save(medication);
     }
 
