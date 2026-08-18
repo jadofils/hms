@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import io.micrometer.core.annotation.Timed;
 
 /**
  * Doctor weekly recurring availability ("the scheduler") — backed by
@@ -28,6 +29,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/doctors/{doctorId}/schedules")
 @Tag(name = "Doctor Schedules", description = "Doctor weekly recurring availability")
+@Timed(value = "hms.rest.requests", extraTags = {"layer", "rest"}, percentiles = {0.5, 0.95, 0.99})
 @RequiredArgsConstructor
 public class DoctorScheduleController {
 
