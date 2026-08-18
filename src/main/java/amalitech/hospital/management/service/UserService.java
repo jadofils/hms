@@ -39,7 +39,10 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * User CRUD + role assignment.
@@ -96,6 +99,14 @@ public class UserService {
      * (multi-column sort isn't wired up). {@code FindUserDataAspect} is what actually
      * validates the column against this domain's own SELECT list before it ever reaches
      * the query.
+     *
+     * <p>Each row's {@code roles} (and, where the user has one linked, {@code doctor} —
+     * departments included) are then eager-loaded via {@link #attachRolesAndDoctors} —
+     * two extra queries scoped to just this page's user IDs, not one query per row, so
+     * the listing's cost stays flat regardless of page size. This is the one listing in
+     * the codebase that eager-loads this deep; every other paginated listing
+     * (`DoctorService.getDoctors`, `PatientService.getPatients`, etc.) deliberately
+     * doesn't, since a caller here specifically needs it.
      */
     public PagedModel<UserResponse> getUsers(Pageable pageable) {
         Sort.Order order = pageable.getSort().stream().findFirst().orElse(null);
@@ -113,8 +124,59 @@ public class UserService {
                     return response;
                 })
                 .toList();
+        attachRolesAndDoctors(content);
         Page<UserResponse> page = new PageImpl<>(content, pageable, raw.total());
         return new PagedModel<>(page);
+    }
+
+    /**
+     * Batches {@code roles} and linked {@code doctor} (with that doctor's own
+     * departments) onto every {@link UserResponse} in {@code users} — exactly two
+     * queries total (one grouped-by-user roles fetch, one batched user re-fetch to read
+     * each one's linked {@code doctor_id}), not one per row, so a page of 50 users costs
+     * the same two round trips as a page of 5.
+     *
+     * <p>Each role is {@link #toShallowRoleResponse}, not {@link #toRoleResponse} — id/
+     * name/description only, no nested {@code permissions} — deliberately shallower than
+     * the single-item {@link #getUser}/{@link #getUserRoles}, which do include each
+     * role's permissions. A listing of many users is the wrong place to also expand
+     * every one of their roles' full granted-permission lists; a caller that needs a
+     * given role's permissions already has {@code GET /api/v1/roles/{roleId}}. Roles are
+     * deduplicated by role ID within the batch regardless — computed once per distinct
+     * role actually present on this page, not once per (user, role) pair, since the same
+     * handful of roles (Admin/Doctor/Receptionist/...) is typically held by many users at
+     * once. Distinct linked doctors are memoized the same way through
+     * {@code DoctorService.getDoctor}, which is itself {@code @Cacheable} — so a doctor
+     * shared by name across pages is usually a Redis hit rather than a DB round trip.
+     */
+    private void attachRolesAndDoctors(List<UserResponse> users) {
+        if (users.isEmpty()) {
+            return;
+        }
+        List<String> userIds = users.stream().map(UserResponse::getUserId).toList();
+
+        Map<String, RoleResponse> roleResponseCache = new HashMap<>();
+        Map<String, List<RoleResponse>> rolesByUserId = userRoleRepository
+                .findByIdUserIdInAndRevokedAtIsNull(userIds).stream()
+                .collect(Collectors.groupingBy(
+                        ur -> ur.getId().getUserId(),
+                        Collectors.mapping(
+                                ur -> roleResponseCache.computeIfAbsent(
+                                        ur.getRole().getRoleId(), id -> toShallowRoleResponse(ur.getRole())),
+                                Collectors.toList())));
+
+        Map<String, String> doctorIdByUserId = userRepository.findAllById(userIds).stream()
+                .filter(user -> user.getDoctor() != null)
+                .collect(Collectors.toMap(User::getUserId, user -> user.getDoctor().getDoctorId()));
+        Map<String, DoctorResponse> doctorResponseCache = new HashMap<>();
+
+        for (UserResponse user : users) {
+            user.setRoles(rolesByUserId.getOrDefault(user.getUserId(), List.of()));
+            String doctorId = doctorIdByUserId.get(user.getUserId());
+            if (doctorId != null) {
+                user.setDoctor(doctorResponseCache.computeIfAbsent(doctorId, doctorService::getDoctor));
+            }
+        }
     }
 
     /**
@@ -357,6 +419,17 @@ public class UserService {
         response.setRoleName(role.getRoleName());
         response.setDescription(role.getDescription());
         response.setPermissions(roleService.getRolePermissions(role.getRoleId()));
+        return response;
+    }
+
+    /** Id/name/description only, no {@code permissions} — see
+     *  {@link #attachRolesAndDoctors} for why the paginated listing uses this instead
+     *  of {@link #toRoleResponse}. */
+    private static RoleResponse toShallowRoleResponse(Role role) {
+        RoleResponse response = new RoleResponse();
+        response.setRoleId(role.getRoleId());
+        response.setRoleName(role.getRoleName());
+        response.setDescription(role.getDescription());
         return response;
     }
 }
