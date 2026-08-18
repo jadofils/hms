@@ -19,8 +19,13 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.web.PagedModel;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -70,6 +75,36 @@ class LabOrderServiceTest {
         existingLabOrder.setDoctor(existingDoctor);
         existingLabOrder.setTestName("Blood Panel");
         existingLabOrder.setStatus(LabOrderStatus.ORDERED);
+    }
+
+    // ── getLabOrders (optional status filter) ───────────────────────────────
+
+    @Test
+    void getLabOrders_returnsUnfilteredPage_whenStatusOmitted() {
+        Page<LabOrder> page = new PageImpl<>(List.of(existingLabOrder), PageRequest.of(0, 20), 1);
+        when(labOrderRepository.findAll(PageRequest.of(0, 20))).thenReturn(page);
+
+        PagedModel<LabOrderResponse> result = labOrderService.getLabOrders(PageRequest.of(0, 20), null);
+
+        assertThat(result.getContent()).hasSize(1);
+        verify(labOrderRepository, never()).findByStatus(any(), any());
+    }
+
+    @Test
+    void getLabOrders_filtersByValidatedStatus_whenProvided() {
+        Page<LabOrder> page = new PageImpl<>(List.of(existingLabOrder), PageRequest.of(0, 20), 1);
+        when(labOrderRepository.findByStatus(LabOrderStatus.ORDERED, PageRequest.of(0, 20))).thenReturn(page);
+
+        PagedModel<LabOrderResponse> result = labOrderService.getLabOrders(PageRequest.of(0, 20), "Ordered");
+
+        assertThat(result.getContent()).hasSize(1);
+        assertThat(result.getContent().get(0).getStatus()).isEqualTo("ordered");
+    }
+
+    @Test
+    void getLabOrders_throwsBadRequest_whenStatusInvalid() {
+        assertThatThrownBy(() -> labOrderService.getLabOrders(PageRequest.of(0, 20), "bogus"))
+                .isInstanceOf(BadRequestException.class);
     }
 
     @Test

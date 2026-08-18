@@ -24,6 +24,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 /**
  * Lab order CRUD — each order belongs to one {@link Appointment} and is requested by
@@ -42,8 +43,20 @@ public class LabOrderService {
     private final DoctorRepository doctorRepository;
     private final LabResultRepository labResultRepository;
 
-    public PagedModel<LabOrderResponse> getLabOrders(Pageable pageable) {
-        return new PagedModel<>(labOrderRepository.findAll(pageable).map(this::toResponse));
+    /**
+     * {@code status} is optional — omitted, this is every lab order (unfiltered);
+     * given, only orders in that exact status (e.g. {@code "ordered"} for a lab
+     * technician's still-pending worklist). Validated against {@link LabOrderStatus}'s
+     * own allowed values before ever reaching a query — the same safety principle
+     * {@code PatientService.getPatients}/{@code AppointmentService.getAppointments}
+     * already rely on for their own status filters.
+     */
+    public PagedModel<LabOrderResponse> getLabOrders(Pageable pageable, String status) {
+        if (status == null || status.isBlank()) {
+            return new PagedModel<>(labOrderRepository.findAll(pageable).map(this::toResponse));
+        }
+        LabOrderStatus validated = validateStatus(status);
+        return new PagedModel<>(labOrderRepository.findByStatus(validated, pageable).map(this::toResponse));
     }
 
     /** Not populated by {@link #getLabOrders} or by create/update — only by this
@@ -60,7 +73,7 @@ public class LabOrderService {
         Appointment appointment = findAppointmentOrThrow(request.getAppointmentId());
         Doctor doctor = findDoctorOrThrow(request.getDoctorId());
 
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
         LabOrder labOrder = new LabOrder();
         labOrder.setAppointment(appointment);
         labOrder.setDoctor(doctor);
@@ -85,7 +98,7 @@ public class LabOrderService {
         if (request.getStatus() != null && !request.getStatus().isBlank()) {
             labOrder.setStatus(validateStatus(request.getStatus()));
         }
-        labOrder.setUpdatedAt(LocalDateTime.now());
+        labOrder.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
         return toResponse(labOrderRepository.save(labOrder));
     }
 
@@ -93,7 +106,7 @@ public class LabOrderService {
     @CacheEvict(value = "lab-orders", key = "#labOrderId")
     public void deleteLabOrder(String labOrderId) {
         LabOrder labOrder = findLabOrderOrThrow(labOrderId);
-        labOrder.setDeletedAt(LocalDateTime.now());
+        labOrder.setDeletedAt(LocalDateTime.now(ZoneId.systemDefault()));
         labOrderRepository.save(labOrder);
     }
 
