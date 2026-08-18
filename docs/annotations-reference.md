@@ -113,17 +113,40 @@ public class RoleService {
 `list` must be **mutable** (`AlgorithmUtils.mergeSort` calls `list.set(...)` internally) —
 wrap a `Stream.toList()`/`List.of()` result in `new ArrayList<>(...)` first if needed.
 
-**Searching** — `binarySearch` over an *already-sorted* list, returns the index or `-1`:
+**Searching** — `binarySearch` over an *already-sorted* list, returns the index or `-1`.
+Real caller: `AppointmentService`'s double-booking guard, which runs before every
+`createAppointment`/`updateAppointment` — instead of a second, date-filtered DB query per
+call, it reuses the doctor's already-loaded appointment list, sorts it by date via
+`self.sort` (the same `@ApplyAlgorithm("mergeSort")` entry point above, just declared on
+`AppointmentService` rather than `RoleService` — see below), then checks whether the
+requested slot is already taken:
+
 ```java
+private void throwIfDoctorDoubleBooked(String doctorId, LocalDateTime requestedDate, String excludeAppointmentId) {
+    List<Appointment> doctorAppointments = new ArrayList<>(
+            appointmentRepository.findByDoctor_DoctorIdAndDeletedAtIsNull(doctorId));
+    if (excludeAppointmentId != null) {
+        doctorAppointments.removeIf(a -> a.getAppointmentId().equals(excludeAppointmentId));
+    }
+    List<Appointment> sorted = self.sort(doctorAppointments, Comparator.comparing(Appointment::getAppointmentDate));
+    if (self.search(sorted, requestedDate, Appointment::getAppointmentDate) != -1) {
+        throw new ConflictException("Doctor already has an appointment scheduled at this date and time");
+    }
+}
+
 @ApplyAlgorithm("binarySearch")
 public <T> int search(List<T> list, Object targetKey, Function<T, ?> keyExtractor) {
     throw new IllegalStateException("AlgorithmAspect did not intercept this call");
 }
 ```
-The list must already be sorted by the same key `keyExtractor` produces — binary search on
-an unsorted list gives a meaningless result, not an error. `sort`/`search` are generic
-(`<T>`) but each lives on the one service that needs it rather than a shared bean; a new
-domain that needs the same in-memory sort/search adds its own small entry point.
+`excludeAppointmentId` (the appointment being updated, `null` when creating) is filtered
+out of `doctorAppointments` *before* sorting/searching — an appointment's own unchanged
+slot must never count as a conflict against itself. The list must already be sorted by
+the same key `keyExtractor` produces — binary search on an unsorted list gives a
+meaningless result, not an error. `sort`/`search` are generic (`<T>`) but each lives on
+the one service that needs it rather than a shared bean, so both `RoleService` and
+`AppointmentService` each declare their own small `sort`/`search` entry point rather than
+sharing one.
 
 **Where in the codebase**: `annotation/ApplyAlgorithm.java`, `aop/AlgorithmAspect.java`,
 `utils/AlgorithmUtils.java` (the actual `mergeSort`/`binarySearch` implementations).
@@ -144,12 +167,29 @@ public @interface FindUserData {
 ```
 
 Builds a native SQL query with the fluent `QueryBuilder` and runs it via
-`EntityManager.createNativeQuery`, based on `domain()`. Only `domain="user"` is wired to a
-real caller today (`UserService.findUsersPage`, called internally as
-`self.findUsersPage(...)`, returning a `PagedRawResult(rows, total)` when the method also
-declares `(int page, int size)` args) — the `role`/`appointment`/`doctor` cases exist as
-documented-but-uncalled infrastructure; double-check their `SELECT`/`JOIN` columns still
-match the current schema before wiring a new caller to them.
+`EntityManager.createNativeQuery`, based on `domain()`. Every domain now has a real
+caller — none is left as uncalled infrastructure:
+
+| `domain()` | Real caller | Endpoint |
+|---|---|---|
+| `"user"` | `UserService.findUsersPage` | `GET /api/v1/users` |
+| `"patient"` | `PatientService.findPatientsPage` | `GET /api/v1/patients` |
+| `"doctor"` | `DoctorService.findDoctorsPage` | `GET /api/v1/doctors` |
+| `"appointment"` | `AppointmentService.findAppointmentsPage` | `GET /api/v1/appointments` |
+| `"role"` | `RoleService.findAssignedRolesPage` | `GET /api/v1/roles/assigned` |
+| `"permission"` | `PermissionService.findGrantedPermissionsPage` | `GET /api/v1/permissions/granted` |
+
+`"role"`/`"permission"` were the last two to get a caller — added specifically to close
+this gap. Both join back through `user_roles`/`users` (a role/permission held by more
+than one active user would otherwise repeat once per holder), so `buildQuery`'s `"role"`/
+`"permission"` cases call `.distinct()`, and the accompanying paginated total uses
+`countExpressionFor`'s `COUNT(DISTINCT r.role_id)`/`COUNT(DISTINCT p.permission_id)`
+rather than a plain `COUNT(*)` — the same dedup has to happen on both the row query and
+the count, or the reported total would disagree with the actual (deduplicated) row count.
+`GET /api/v1/roles/assigned` and `GET /api/v1/permissions/granted` are deliberately
+separate from `GET /api/v1/roles`/`GET /api/v1/permissions` (the entire catalog, assigned
+or not) — an admin audit/cleanup view of what's actually in effect, not a replacement for
+the full-catalog listing.
 
 **`userId()`/`username()` string-concatenate directly into the SQL** (not parameter
 binding) — any value that could reach those annotation attributes from user input needs
@@ -198,12 +238,45 @@ annotation but aren't read dynamically by the aspect for the same reason as
 `@ApplyAlgorithm`'s unused `key()` — there's no way to parameterize a new query without
 adding a case to the aspect's `switch`.
 
-None of the three cases (`findDoctorsByDepartment`, `findDepartmentsWithDoctors`,
-`findRolesWithPermissionCount`) has a real caller today; copy this shape for the next real
-one (self-injected method calling `self.yourMethod()`, annotated
-`@SqlQueryBuilder("yourCase")`). If you need caller-supplied filters instead of a fixed
-query, `@FindUserData`'s `userId()`/`username()` pattern (or the runtime-args trick
-`@ApplyAlgorithm`/`@FindUserData` both use) is the closer fit, not this one.
+All three cases now have a real caller — each a small admin-facing analytics endpoint,
+distinct from that domain's own full-catalog listing:
+
+| `value()` | Real caller | Endpoint | What it returns |
+|---|---|---|---|
+| `"findRolesWithPermissionCount"` | `RoleService.findRolesWithPermissionCount` → `getRolePermissionSummary` | `GET /api/v1/roles/summary` | Every active role + its permission count (`GROUP BY`) |
+| `"findDepartmentsWithDoctors"` | `DepartmentService.findDepartmentsWithDoctorCounts` → `getStaffingSummary` | `GET /api/v1/departments/staffing-summary` | Only departments with ≥1 active doctor (`GROUP BY`/`HAVING`) |
+| `"findDoctorsByDepartment"` | `DoctorService.findDoctorsByDepartment` → `getDoctorDepartmentRoster` | `GET /api/v1/doctors/roster` | One row per doctor-department pairing (a doctor in N departments appears N times) |
+
+Each follows the same shape — a self-injected `@SqlQueryBuilder`-annotated method
+returning the raw `List<Object[]>`, and a second, non-annotated method that maps those
+rows into a real response DTO:
+```java
+@SqlQueryBuilder("findRolesWithPermissionCount")
+public List<Object[]> findRolesWithPermissionCount() {
+    throw new IllegalStateException("SqlQueryBuilderAspect did not intercept this call");
+}
+
+public List<RolePermissionCountResponse> getRolePermissionSummary() {
+    return self.findRolesWithPermissionCount().stream()
+            .map(row -> {
+                RolePermissionCountResponse response = new RolePermissionCountResponse();
+                response.setRoleId((String) row[0]);
+                response.setRoleName((String) row[1]);
+                response.setPermissionCount(((Number) row[2]).longValue());
+                return response;
+            })
+            .toList();
+}
+```
+`((Number) row[2])` rather than `(Long)`/`(BigInteger)` directly — a native
+`COUNT(...)`/aggregate column's actual JDBC type isn't guaranteed across drivers (the
+same reasoning `FindUserDataAspect`'s own paginated-total cast already relies on).
+Copy this same shape (self-injected method, `@SqlQueryBuilder("yourCase")`, a mapping
+method, a controller endpoint) for the next one — it needs a new `switch` case in
+`SqlQueryBuilderAspect` first, since there's no way to parameterize a query without one.
+If you need caller-supplied filters instead of a fixed query, `@FindUserData`'s
+`userId()`/`username()` pattern (or the runtime-args trick `@ApplyAlgorithm`/
+`@FindUserData` both use) is the closer fit, not this one.
 
 **Deliberately not backed by an `ORDER BY`** — `QueryBuilder` has an `orderBy(column[, dir])`
 method, but neither `FindUserDataAspect` nor `SqlQueryBuilderAspect` calls it; sort in
