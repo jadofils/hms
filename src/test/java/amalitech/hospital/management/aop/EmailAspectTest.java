@@ -14,6 +14,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.time.LocalDateTime;
 
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
@@ -106,7 +107,8 @@ class EmailAspectTest {
 
         // EmailAspect.send() catches MailException and just logs — must never propagate,
         // since every real caller (AuthService) treats "email attempted" as best-effort.
-        mailService.sendPasswordChangedEmail("test@example.com", "Ada", LocalDateTime.now());
+        assertThatCode(() -> mailService.sendPasswordChangedEmail("test@example.com", "Ada", LocalDateTime.now()))
+                .doesNotThrowAnyException();
     }
 
     /** None of {@link MailService}'s 6 real methods can ever hit the aspect's
