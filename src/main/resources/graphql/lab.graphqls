@@ -37,7 +37,11 @@ input LabResultInput {
 }
 
 extend type Query {
-    labOrders(page: Int! = 0, size: Int! = 20): [LabOrder!]!
+    """Sortable columns: labOrderId, testName, status, orderedAt, updatedAt. `sort`
+    uses the same "property,direction" format REST's own `?sort=` query param does
+    (e.g. "orderedAt,desc"). `status` optionally filters the list — e.g. a lab
+    technician's still-pending worklist."""
+    labOrders(page: Int! = 0, size: Int! = 20, sort: String, status: String): [LabOrder!]!
     labOrder(labOrderId: ID!): LabOrder
     labResult(labOrderId: ID!): LabResult
 }
