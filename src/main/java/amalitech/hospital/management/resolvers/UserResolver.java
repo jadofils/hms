@@ -3,7 +3,6 @@ package amalitech.hospital.management.resolvers;
 import amalitech.hospital.management.dto.user.AdminCreateUserRequest;
 import amalitech.hospital.management.dto.user.UserRequest;
 import amalitech.hospital.management.dto.user.UserResponse;
-import amalitech.hospital.management.dto.user.role.RoleResponse;
 import amalitech.hospital.management.service.UserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -11,7 +10,6 @@ import amalitech.hospital.management.utils.GraphQlPaging;
 import org.springframework.graphql.data.method.annotation.Argument;
 import org.springframework.graphql.data.method.annotation.MutationMapping;
 import org.springframework.graphql.data.method.annotation.QueryMapping;
-import org.springframework.graphql.data.method.annotation.SchemaMapping;
 import org.springframework.stereotype.Controller;
 import org.springframework.validation.annotation.Validated;
 
@@ -30,6 +28,15 @@ import io.micrometer.core.annotation.Timed;
  * <p>{@code assignRole}/{@code revokeRole} mirror {@code UserController}'s own endpoints,
  * which return no body (204) — here they return the refreshed {@code User} instead,
  * since a GraphQL mutation is expected to return *something* selectable.
+ *
+ * <p>{@code roles} and {@code doctor} on the {@code User} GraphQL type need no
+ * {@code @SchemaMapping} of their own — {@link UserService#getUsers} and
+ * {@link UserService#getUser} both already eager-load them onto {@link UserResponse}
+ * (see {@code UserService.attachRolesAndDoctors}), so Spring GraphQL's default
+ * property-based data fetcher reads {@code UserResponse.getRoles()}/{@code getDoctor()}
+ * directly. A dedicated per-row {@code @SchemaMapping} used to exist for {@code roles}
+ * here; it was removed because it re-fetched every user's roles one row at a time,
+ * reintroducing the exact N+1 the batched service-level fetch exists to avoid.
  */
 @Controller
 @Validated
@@ -75,10 +82,5 @@ public class UserResolver {
     public UserResponse revokeRole(@Argument String userId, @Argument String roleId) {
         userService.revokeRole(userId, roleId);
         return userService.getUser(userId);
-    }
-
-    @SchemaMapping(typeName = "User", field = "roles")
-    public List<RoleResponse> roles(UserResponse user) {
-        return userService.getUserRoles(user.getUserId());
     }
 }
