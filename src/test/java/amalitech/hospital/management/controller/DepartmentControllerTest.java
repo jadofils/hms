@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MvcResult;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -61,5 +62,21 @@ class DepartmentControllerTest extends AbstractControllerTest {
         String token = adminToken();
         mockMvc.perform(get("/api/v1/departments/nonexistent-id").header("Authorization", "Bearer " + token))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void getStaffingSummary_returnsOkWithArrayBody() throws Exception {
+        String token = adminToken();
+        // A throwaway doctor+department guarantees at least one staffed department exists.
+        createDoctor(token);
+
+        MvcResult result = mockMvc.perform(get("/api/v1/departments/staffing-summary")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        JsonNode data = objectMapper.readTree(result.getResponse().getContentAsString()).at("/data");
+        assertThat(data.isArray()).isTrue();
+        assertThat(data.size()).isGreaterThan(0);
     }
 }
