@@ -79,7 +79,7 @@ public class FindUserDataAspect {
                 .orderBy(orderColumn, direction)
                 .limit(size)
                 .offset(page * size);
-        QueryBuilder countBuilder = buildQuery(findUserData, filter1, filter2, "COUNT(*)");
+        QueryBuilder countBuilder = buildQuery(findUserData, filter1, filter2, countExpressionFor(findUserData.domain()));
 
         List<?> rows = entityManager.createNativeQuery(rowsBuilder.build()).getResultList();
         Number total = (Number) entityManager.createNativeQuery(countBuilder.build()).getSingleResult();
@@ -130,7 +130,11 @@ public class FindUserDataAspect {
     private Map<String, String> sortableColumnsFor(String domain) {
         Map<String, String> columns = new LinkedHashMap<>();
         for (String column : selectColumnsFor(domain)) {
-            String[] parts = column.split("(?i)\\s+AS\\s+", 2);
+            // A single literal space each side (not \s+ repeated) — every selectColumnsFor
+            // entry already uses exactly one space around "AS" consistently, and a fixed,
+            // non-repeated separator here avoids the superlinear backtracking risk a
+            // quantified \s+ on both sides of a case-insensitive alternation can have.
+            String[] parts = column.split("(?i) as ", 2);
             String expression = parts[0].trim();
             String clientName = parts.length == 2
                     ? parts[1].trim()
@@ -169,13 +173,21 @@ public class FindUserDataAspect {
                 if (filter1 != null) builder.and("u.email = '" + escapeSqlLiteral(filter1) + "'");
             }
 
+            // .distinct() — a role/permission held by more than one active user would
+            // otherwise repeat once per holder (this join fans out per user_roles/
+            // role_permissions row, and the select list carries no user-identifying
+            // column to make each repeat distinguishable); see countExpressionFor's
+            // matching COUNT(DISTINCT ...) for the paginated total this must stay
+            // consistent with.
             case "role" -> builder = QueryBuilder.select(selectCols)
+                    .distinct()
                     .from("roles r")
                     .join("user_roles ur ON ur.role_id = r.role_id")
                     .join("users u ON u.user_id = ur.user_id")
                     .whereActive("r").whereActive("u");
 
             case "permission" -> builder = QueryBuilder.select(selectCols)
+                    .distinct()
                     .from("permissions p")
                     .join("role_permissions rp ON rp.permission_id = p.permission_id")
                     .join("roles r ON r.role_id = rp.role_id")
@@ -218,6 +230,19 @@ public class FindUserDataAspect {
             builder.and("u.username = '" + findUserData.username() + "'");
         }
         return builder;
+    }
+
+    /** The "role"/"permission" cases below join back through {@code user_roles}/
+     *  {@code users} — a role or permission held by N active users would otherwise
+     *  fan out into N duplicate rows (see {@link #buildQuery}'s {@code .distinct()} on
+     *  those two cases), so the accompanying count must dedupe on the same primary key
+     *  rather than counting every join row via a plain {@code COUNT(*)}. */
+    private String countExpressionFor(String domain) {
+        return switch (domain) {
+            case "role" -> "COUNT(DISTINCT r.role_id)";
+            case "permission" -> "COUNT(DISTINCT p.permission_id)";
+            default -> "COUNT(*)";
+        };
     }
 
     /** Doubles every single quote — the standard SQL string-literal escape — so a value
