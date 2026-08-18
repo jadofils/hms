@@ -62,6 +62,23 @@ call the owning domain's own service — e.g. `AppointmentResolver.patient` call
 `PatientService.getPatient`, giving GraphQL callers the real related object instead of
 REST's pre-flattened `patientName` string.
 
+**Sorting now has full REST parity too — it didn't at first.** Every listing resolver
+originally hardcoded `PageRequest.of(page, size)` with no way to request an order at all,
+even though every one of their REST counterparts already supported `?sort=property,direction`
+— a real functional gap, not just a documentation one, since GraphQL had *no* argument for it
+whatsoever. Fixed by adding an optional `sort: String` argument (same
+`"property,direction"` format REST's own `?sort=` uses, e.g. `sort: "lastName,desc"`) to
+every one of the 13 listing queries, parsed by one shared `utils/GraphQlPaging.of(page, size,
+sort)` helper into a real `Pageable` — REST gets this parsing for free from Spring's own
+`Pageable` argument-resolver, but a GraphQL resolver's `@Argument` values are just raw
+strings/ints with no equivalent binding, so this one small utility does by hand what Spring
+MVC does automatically for REST. No service-layer change was needed at all: every listing
+service method already reads `Pageable.getSort()` (either to drive `@FindUserData`'s
+whitelisted `ORDER BY`, or, for the plain-JPA listings, gets it applied by Hibernate
+automatically) — wiring a real `Sort` into the `Pageable` GraphQL builds was the entire fix.
+Every listing query's SDL docstring also names its sortable columns now, matching each
+REST controller's own `@Parameter(name = "sort", description = ...)`.
+
 **`@RequirePermission`/`AuthorizationAspect` do not apply to GraphQL** — that mechanism is
 scoped to `@RestController` methods; GraphQL resolvers aren't reached through the same
 handler-mapping pointcut. Authorization for GraphQL is intentionally out of scope for this
