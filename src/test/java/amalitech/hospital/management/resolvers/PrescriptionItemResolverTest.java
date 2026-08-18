@@ -53,6 +53,8 @@ class PrescriptionItemResolverTest {
         graphQlTester.document("{ prescriptionItems(prescriptionId: \"presc-1\") { quantity medication { name } } }")
                 .execute()
                 .path("prescriptionItems[0].medication.name").entity(String.class).isEqualTo("Paracetamol");
+
+        verify(prescriptionItemService).getItems("presc-1");
     }
 
     @Test
@@ -63,6 +65,8 @@ class PrescriptionItemResolverTest {
                         "mutation { createPrescriptionItem(prescriptionId: \"presc-1\", input: { medicationId: \"med-1\", quantity: 2 }) { itemId } }")
                 .execute()
                 .path("createPrescriptionItem.itemId").entity(String.class).isEqualTo("item-1");
+
+        verify(prescriptionItemService).createItem(eq("presc-1"), any());
     }
 
     @Test
