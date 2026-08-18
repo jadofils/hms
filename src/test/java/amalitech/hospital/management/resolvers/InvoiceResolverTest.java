@@ -61,6 +61,8 @@ class InvoiceResolverTest {
                 .execute()
                 .path("invoice.totalAmount").entity(BigDecimal.class).isEqualTo(new BigDecimal("100.00"))
                 .path("invoice.patient.firstName").entity(String.class).isEqualTo("Alice");
+
+        verify(invoiceService).getInvoice("inv-1");
     }
 
     @Test
@@ -71,6 +73,8 @@ class InvoiceResolverTest {
                         "mutation { createInvoice(input: { appointmentId: \"appt-1\", patientId: \"patient-1\" }) { invoiceId } }")
                 .execute()
                 .path("createInvoice.invoiceId").entity(String.class).isEqualTo("inv-1");
+
+        verify(invoiceService).createInvoice(any());
     }
 
     @Test
