@@ -71,4 +71,23 @@ class InvoiceControllerTest extends AbstractControllerTest {
                         .content(body))
                 .andExpect(status().isNotFound());
     }
+
+    @Test
+    void getInvoices_filtersByPaymentStatus_throughRealHttpEndpoint() throws Exception {
+        String token = adminToken();
+        String appointmentId = createAppointment(token);
+        String patientId = createPatient(token);
+        String createBody = "{\"appointmentId\":\"" + appointmentId + "\",\"patientId\":\"" + patientId
+                + "\",\"totalAmount\":150.00}";
+        mockMvc.perform(post("/api/v1/invoices")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createBody))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/api/v1/invoices?paymentStatus=unpaid").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/invoices?paymentStatus=bogus").header("Authorization", "Bearer " + token))
+                .andExpect(status().isBadRequest());
+    }
 }
