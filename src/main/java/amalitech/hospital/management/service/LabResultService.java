@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 /**
  * The single result for a {@link LabOrder} — a genuine one-to-one (the entity's own
@@ -44,7 +45,7 @@ public class LabResultService {
                     throw new ConflictException("Lab order already has a result");
                 });
 
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
         LabResult result = new LabResult();
         result.setLabOrder(labOrder);
         result.setResultValue(request.getResultValue());
@@ -67,14 +68,14 @@ public class LabResultService {
         result.setReferenceRange(request.getReferenceRange());
         result.setIsAbnormal(request.getIsAbnormal() != null && request.getIsAbnormal());
         result.setCompletedAt(request.getCompletedAt());
-        result.setUpdatedAt(LocalDateTime.now());
+        result.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
         return toResponse(labResultRepository.save(result));
     }
 
     @Transactional
     public void deleteResult(String labOrderId) {
         LabResult result = findResultOrThrow(labOrderId);
-        result.setDeletedAt(LocalDateTime.now());
+        result.setDeletedAt(LocalDateTime.now(ZoneId.systemDefault()));
         labResultRepository.save(result);
     }
 
