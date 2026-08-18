@@ -24,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 /**
  * Invoice CRUD — each invoice belongs to one {@link Appointment} and one {@link Patient}.
@@ -40,8 +41,20 @@ public class InvoiceService {
     private final PatientRepository patientRepository;
     private final EventBus eventBus;
 
-    public PagedModel<InvoiceResponse> getInvoices(Pageable pageable) {
-        return new PagedModel<>(invoiceRepository.findAll(pageable).map(this::toResponse));
+    /**
+     * {@code paymentStatus} is optional — omitted, this is every invoice (unfiltered);
+     * given, only invoices in that exact status (e.g. {@code "unpaid"} for a billing
+     * follow-up worklist). Validated against {@link PaymentStatus}'s own allowed values
+     * before ever reaching a query — the same safety principle
+     * {@code PatientService.getPatients}/{@code AppointmentService.getAppointments}
+     * already rely on for their own status filters.
+     */
+    public PagedModel<InvoiceResponse> getInvoices(Pageable pageable, String paymentStatus) {
+        if (paymentStatus == null || paymentStatus.isBlank()) {
+            return new PagedModel<>(invoiceRepository.findAll(pageable).map(this::toResponse));
+        }
+        PaymentStatus validated = validateStatus(paymentStatus);
+        return new PagedModel<>(invoiceRepository.findByPaymentStatus(validated, pageable).map(this::toResponse));
     }
 
     @Cacheable(value = "invoices", key = "#invoiceId")
@@ -54,7 +67,7 @@ public class InvoiceService {
         Appointment appointment = findAppointmentOrThrow(request.getAppointmentId());
         Patient patient = findPatientOrThrow(request.getPatientId());
 
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
         Invoice invoice = new Invoice();
         invoice.setAppointment(appointment);
         invoice.setPatient(patient);
@@ -81,7 +94,7 @@ public class InvoiceService {
         if (request.getPaymentStatus() != null && !request.getPaymentStatus().isBlank()) {
             invoice.setPaymentStatus(validateStatus(request.getPaymentStatus()));
         }
-        invoice.setUpdatedAt(LocalDateTime.now());
+        invoice.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
         return toResponse(invoiceRepository.save(invoice));
     }
 
@@ -89,7 +102,7 @@ public class InvoiceService {
     @CacheEvict(value = "invoices", key = "#invoiceId")
     public void deleteInvoice(String invoiceId) {
         Invoice invoice = findInvoiceOrThrow(invoiceId);
-        invoice.setDeletedAt(LocalDateTime.now());
+        invoice.setDeletedAt(LocalDateTime.now(ZoneId.systemDefault()));
         invoiceRepository.save(invoice);
     }
 

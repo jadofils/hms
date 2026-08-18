@@ -18,9 +18,14 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.web.PagedModel;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -63,6 +68,36 @@ class InvoiceServiceTest {
         existingInvoice.setPatient(existingPatient);
         existingInvoice.setTotalAmount(new BigDecimal("100.00"));
         existingInvoice.setPaymentStatus(PaymentStatus.UNPAID);
+    }
+
+    // ── getInvoices (optional paymentStatus filter) ─────────────────────────
+
+    @Test
+    void getInvoices_returnsUnfilteredPage_whenPaymentStatusOmitted() {
+        Page<Invoice> page = new PageImpl<>(List.of(existingInvoice), PageRequest.of(0, 20), 1);
+        when(invoiceRepository.findAll(PageRequest.of(0, 20))).thenReturn(page);
+
+        PagedModel<InvoiceResponse> result = invoiceService.getInvoices(PageRequest.of(0, 20), null);
+
+        assertThat(result.getContent()).hasSize(1);
+        verify(invoiceRepository, never()).findByPaymentStatus(any(), any());
+    }
+
+    @Test
+    void getInvoices_filtersByValidatedPaymentStatus_whenProvided() {
+        Page<Invoice> page = new PageImpl<>(List.of(existingInvoice), PageRequest.of(0, 20), 1);
+        when(invoiceRepository.findByPaymentStatus(PaymentStatus.UNPAID, PageRequest.of(0, 20))).thenReturn(page);
+
+        PagedModel<InvoiceResponse> result = invoiceService.getInvoices(PageRequest.of(0, 20), "Unpaid");
+
+        assertThat(result.getContent()).hasSize(1);
+        assertThat(result.getContent().get(0).getPaymentStatus()).isEqualTo("unpaid");
+    }
+
+    @Test
+    void getInvoices_throwsBadRequest_whenPaymentStatusInvalid() {
+        assertThatThrownBy(() -> invoiceService.getInvoices(PageRequest.of(0, 20), "bogus"))
+                .isInstanceOf(BadRequestException.class);
     }
 
     @Test
