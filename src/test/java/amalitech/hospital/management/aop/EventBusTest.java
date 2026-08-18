@@ -12,6 +12,7 @@ import org.springframework.context.ApplicationContext;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
 
@@ -135,6 +136,6 @@ class EventBusTest {
 
         // Must not propagate — a broken listener must never break the publishing call
         // site's real work or any other subscriber for the same event.
-        eventBus.publish(new SampleEvent("hello"));
+        assertThatCode(() -> eventBus.publish(new SampleEvent("hello"))).doesNotThrowAnyException();
     }
 }
