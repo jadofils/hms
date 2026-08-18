@@ -12,6 +12,7 @@ import org.springframework.stereotype.Controller;
 import org.springframework.validation.annotation.Validated;
 
 import java.util.List;
+import io.micrometer.core.annotation.Timed;
 
 /**
  * GraphQL front door for {@link DoctorScheduleService} — see {@code UserResolver}'s
@@ -19,6 +20,7 @@ import java.util.List;
  */
 @Controller
 @Validated
+@Timed(value = "hms.graphql.requests", extraTags = {"layer", "graphql"}, percentiles = {0.5, 0.95, 0.99})
 @RequiredArgsConstructor
 public class DoctorScheduleResolver {
 

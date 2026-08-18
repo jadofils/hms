@@ -51,6 +51,8 @@ class DoctorScheduleResolverTest {
                 .execute()
                 .path("doctorSchedules[0].startTime").entity(String.class).isEqualTo("09:00")
                 .path("doctorSchedules[0].endTime").entity(String.class).isEqualTo("17:00");
+
+        verify(doctorScheduleService).getSchedules("doctor-1");
     }
 
     @Test
@@ -60,6 +62,8 @@ class DoctorScheduleResolverTest {
         graphQlTester.document("{ doctorAvailability(doctorId: \"doctor-1\", day: \"Mon\", time: \"10:00\") }")
                 .execute()
                 .path("doctorAvailability").entity(Boolean.class).isEqualTo(true);
+
+        verify(doctorScheduleService).isDoctorAvailable("doctor-1", "Mon", "10:00");
     }
 
     @Test
@@ -70,6 +74,8 @@ class DoctorScheduleResolverTest {
                         "mutation { createDoctorSchedule(doctorId: \"doctor-1\", input: { dayOfWeek: \"Mon\", startTime: \"09:00:00\", endTime: \"17:00:00\" }) { scheduleId } }")
                 .execute()
                 .path("createDoctorSchedule.scheduleId").entity(String.class).isEqualTo("sched-1");
+
+        verify(doctorScheduleService).createSchedule(eq("doctor-1"), any());
     }
 
     @Test
