@@ -45,6 +45,8 @@ class RoleResolverTest {
         graphQlTester.document("{ role(roleId: \"role-1\") { roleId roleName } }")
                 .execute()
                 .path("role.roleName").entity(String.class).isEqualTo("Admin");
+
+        verify(roleService).getRole("role-1");
     }
 
     @Test
@@ -59,6 +61,8 @@ class RoleResolverTest {
         graphQlTester.document("{ role(roleId: \"role-1\") { permissions { resource action } } }")
                 .execute()
                 .path("role.permissions[0].resource").entity(String.class).isEqualTo("users");
+
+        verify(roleService).getRolePermissions("role-1");
     }
 
     @Test
