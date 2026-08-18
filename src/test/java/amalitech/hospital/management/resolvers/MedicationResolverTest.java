@@ -45,6 +45,8 @@ class MedicationResolverTest {
                 .execute()
                 .path("medication.name").entity(String.class).isEqualTo("Paracetamol")
                 .path("medication.unitPrice").entity(BigDecimal.class).isEqualTo(new BigDecimal("5.50"));
+
+        verify(medicationService).getMedication("med-1");
     }
 
     @Test
@@ -54,6 +56,8 @@ class MedicationResolverTest {
         graphQlTester.document("mutation { createMedication(input: { name: \"Paracetamol\" }) { medicationId } }")
                 .execute()
                 .path("createMedication.medicationId").entity(String.class).isEqualTo("med-1");
+
+        verify(medicationService).createMedication(any());
     }
 
     @Test
