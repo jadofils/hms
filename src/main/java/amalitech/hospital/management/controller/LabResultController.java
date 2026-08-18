@@ -16,6 +16,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import io.micrometer.core.annotation.Timed;
 
 /**
  * The single result for a lab order — backed by {@link LabResultService}. See that
@@ -26,6 +27,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/v1/lab-orders/{labOrderId}/result")
 @Tag(name = "Lab Results", description = "The result recorded for a lab order")
+@Timed(value = "hms.rest.requests", extraTags = {"layer", "rest"}, percentiles = {0.5, 0.95, 0.99})
 @RequiredArgsConstructor
 public class LabResultController {
 
