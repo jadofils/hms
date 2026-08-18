@@ -142,4 +142,19 @@ class DoctorControllerTest extends AbstractControllerTest {
                         .content(body))
                 .andExpect(status().isNotFound());
     }
+
+    @Test
+    void getDoctorDepartmentRoster_returnsOkWithArrayBody() throws Exception {
+        String token = adminToken();
+        createDoctor(token);
+
+        MvcResult result = mockMvc.perform(get("/api/v1/doctors/roster")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        JsonNode data = objectMapper.readTree(result.getResponse().getContentAsString()).at("/data");
+        org.junit.jupiter.api.Assertions.assertTrue(data.isArray());
+        org.junit.jupiter.api.Assertions.assertTrue(data.size() > 0);
+    }
 }
