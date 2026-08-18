@@ -80,4 +80,33 @@ class NotificationControllerTest extends AbstractControllerTest {
         mockMvc.perform(patch("/api/v1/notifications/nonexistent-id/read").header("Authorization", "Bearer " + token))
                 .andExpect(status().isNotFound());
     }
+
+    @Test
+    void getNotifications_filtersByUnread_throughRealHttpEndpoint() throws Exception {
+        String token = adminToken();
+        // Confirms the specific notification just created/read moves between the
+        // unread/read filters, without assuming it lands on page 0 of either filter's
+        // default-sized page — these tests hit the real DB and don't roll back (see
+        // AbstractControllerTest's Javadoc), so an accumulating pile of earlier runs'
+        // notifications can easily push any one row past page 0 at the default size.
+        String createBody = "{\"type\":\"appointment-created\",\"recipients\":[\"user-2\"]}";
+        MvcResult createResult = mockMvc.perform(post("/api/v1/notifications")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createBody))
+                .andExpect(status().isCreated())
+                .andReturn();
+        String notificationId = objectMapper.readTree(createResult.getResponse().getContentAsString())
+                .at("/data/notificationId").asText();
+
+        mockMvc.perform(get("/api/v1/notifications?unread=true").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/notifications?unread=false").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(patch("/api/v1/notifications/" + notificationId + "/read")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.readAt").exists());
+    }
 }
