@@ -65,6 +65,8 @@ class AppointmentResolverTest {
                 .path("appointment.appointmentDate").entity(String.class).isEqualTo("2099-01-01T10:00")
                 .path("appointment.patient.firstName").entity(String.class).isEqualTo("Alice")
                 .path("appointment.doctor.firstName").entity(String.class).isEqualTo("Greg");
+
+        verify(appointmentService).getAppointment("appt-1");
     }
 
     @Test
@@ -75,6 +77,8 @@ class AppointmentResolverTest {
                         "mutation { createAppointment(input: { patientId: \"patient-1\", doctorId: \"doctor-1\", appointmentDate: \"2099-01-01T10:00:00\" }) { appointmentId } }")
                 .execute()
                 .path("createAppointment.appointmentId").entity(String.class).isEqualTo("appt-1");
+
+        verify(appointmentService).createAppointment(any());
     }
 
     @Test

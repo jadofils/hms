@@ -9,7 +9,7 @@ import amalitech.hospital.management.service.DoctorService;
 import amalitech.hospital.management.service.PatientService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.PageRequest;
+import amalitech.hospital.management.utils.GraphQlPaging;
 import org.springframework.graphql.data.method.annotation.Argument;
 import org.springframework.graphql.data.method.annotation.MutationMapping;
 import org.springframework.graphql.data.method.annotation.QueryMapping;
@@ -18,6 +18,7 @@ import org.springframework.stereotype.Controller;
 import org.springframework.validation.annotation.Validated;
 
 import java.util.List;
+import io.micrometer.core.annotation.Timed;
 
 /**
  * GraphQL front door for {@link AppointmentService} — see {@code UserResolver}'s Javadoc
@@ -30,6 +31,7 @@ import java.util.List;
  */
 @Controller
 @Validated
+@Timed(value = "hms.graphql.requests", extraTags = {"layer", "graphql"}, percentiles = {0.5, 0.95, 0.99})
 @RequiredArgsConstructor
 public class AppointmentResolver {
 
@@ -38,8 +40,9 @@ public class AppointmentResolver {
     private final DoctorService doctorService;
 
     @QueryMapping
-    public List<AppointmentResponse> appointments(@Argument int page, @Argument int size, @Argument String status) {
-        return appointmentService.getAppointments(PageRequest.of(page, size), status).getContent();
+    public List<AppointmentResponse> appointments(@Argument int page, @Argument int size, @Argument String sort,
+            @Argument String status) {
+        return appointmentService.getAppointments(GraphQlPaging.of(page, size, sort), status).getContent();
     }
 
     @QueryMapping
