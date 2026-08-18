@@ -23,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 /**
  * Prescription CRUD — each prescription belongs to one {@link Appointment}.
@@ -58,10 +59,10 @@ public class PrescriptionService {
     public PrescriptionResponse createPrescription(PrescriptionRequest request) {
         Appointment appointment = findAppointmentOrThrow(request.getAppointmentId());
 
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
         Prescription prescription = new Prescription();
         prescription.setAppointment(appointment);
-        prescription.setDateIssued(request.getDateIssued() == null ? LocalDate.now() : request.getDateIssued());
+        prescription.setDateIssued(request.getDateIssued() == null ? LocalDate.now(ZoneId.systemDefault()) : request.getDateIssued());
         prescription.setCreatedAt(now);
         prescription.setUpdatedAt(now);
         Prescription saved = prescriptionRepository.save(prescription);
@@ -76,8 +77,8 @@ public class PrescriptionService {
         Appointment appointment = findAppointmentOrThrow(request.getAppointmentId());
 
         prescription.setAppointment(appointment);
-        prescription.setDateIssued(request.getDateIssued() == null ? LocalDate.now() : request.getDateIssued());
-        prescription.setUpdatedAt(LocalDateTime.now());
+        prescription.setDateIssued(request.getDateIssued() == null ? LocalDate.now(ZoneId.systemDefault()) : request.getDateIssued());
+        prescription.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
         return toResponse(prescriptionRepository.save(prescription));
     }
 
@@ -85,7 +86,7 @@ public class PrescriptionService {
     @CacheEvict(value = "prescriptions", key = "#prescriptionId")
     public void deletePrescription(String prescriptionId) {
         Prescription prescription = findPrescriptionOrThrow(prescriptionId);
-        prescription.setDeletedAt(LocalDateTime.now());
+        prescription.setDeletedAt(LocalDateTime.now(ZoneId.systemDefault()));
         prescriptionRepository.save(prescription);
     }
 
