@@ -19,14 +19,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
- * Exercises {@link FindUserDataAspect} branches with no production caller today:
- * real callers ({@code UserService.findUsersPage}/{@code AppointmentService}/
- * {@code DoctorService}/{@code PatientService}) only ever use domain="user"/
- * "appointment"/"doctor"/"patient", always paginated, and never set
- * {@code userId()}/{@code username()} on the annotation itself. This test-local bean
- * covers: the "role"/"permission" domains (see CLAUDE.md — unexercised by a real
- * caller, double-check-before-relying-on-them territory), the non-paginated branch,
- * the userId()/username() concatenation branches, and the unknown-domain error path.
+ * Exercises {@link FindUserDataAspect} branches beyond what the real production
+ * callers exercise on their own: {@code RoleService.findAssignedRolesPage}/
+ * {@code PermissionService.findGrantedPermissionsPage} now cover the "role"/
+ * "permission" domains for real (see {@code RoleServiceTest}/{@code PermissionServiceTest}
+ * and {@code RoleControllerTest}/{@code PermissionControllerTest}), alongside
+ * {@code UserService.findUsersPage}/{@code AppointmentService}/{@code DoctorService}/
+ * {@code PatientService} for "user"/"appointment"/"doctor"/"patient" — none of them set
+ * {@code userId()}/{@code username()} on the annotation itself, though. This test-local
+ * bean covers what's left: the non-paginated branch, the userId()/username()
+ * concatenation branches, and the unknown-domain error path.
  */
 @SpringBootTest
 @ActiveProfiles("test")
