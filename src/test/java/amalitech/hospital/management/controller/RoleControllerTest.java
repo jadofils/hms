@@ -135,6 +135,36 @@ class RoleControllerTest extends AbstractControllerTest {
                 .andExpect(status().isNotFound());
     }
 
+    @Test
+    void getRolePermissionSummary_returnsOkWithArrayBody() throws Exception {
+        String token = adminToken();
+
+        MvcResult result = mockMvc.perform(get("/api/v1/roles/summary")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        JsonNode data = objectMapper.readTree(result.getResponse().getContentAsString()).at("/data");
+        // Seeded roles always exist (see DataSeeder), so this always returns rows.
+        assertThat(data.isArray()).isTrue();
+        assertThat(data.size()).isGreaterThan(0);
+    }
+
+    @Test
+    void getAssignedRoles_returnsOkWithArrayBody() throws Exception {
+        String token = adminToken();
+
+        MvcResult result = mockMvc.perform(get("/api/v1/roles/assigned?sort=roleName,asc")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        JsonNode content = objectMapper.readTree(result.getResponse().getContentAsString()).at("/data/content");
+        // The seeded admin user holds a role (see DataSeeder), so this always returns rows.
+        assertThat(content.isArray()).isTrue();
+        assertThat(content.size()).isGreaterThan(0);
+    }
+
     private String fetchASeededPermissionId(String token) throws Exception {
         MvcResult result = mockMvc.perform(get("/api/v1/permissions?size=1")
                         .header("Authorization", "Bearer " + token))
