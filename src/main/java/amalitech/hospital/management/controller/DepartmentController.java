@@ -2,6 +2,7 @@ package amalitech.hospital.management.controller;
 
 import amalitech.hospital.management.annotation.RequirePermission;
 import amalitech.hospital.management.dto.common.ApiResult;
+import amalitech.hospital.management.dto.doctor.DepartmentDoctorCountResponse;
 import amalitech.hospital.management.dto.doctor.DepartmentRequest;
 import amalitech.hospital.management.dto.doctor.DepartmentResponse;
 import amalitech.hospital.management.dto.doctor.DoctorResponse;
@@ -24,6 +25,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import io.micrometer.core.annotation.Timed;
 
 /**
  * Department management — backed by {@link DepartmentService}. See that class for
@@ -32,6 +34,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/v1/departments")
 @Tag(name = "Departments", description = "Hospital department management")
+@Timed(value = "hms.rest.requests", extraTags = {"layer", "rest"}, percentiles = {0.5, 0.95, 0.99})
 @RequiredArgsConstructor
 public class DepartmentController {
 
@@ -96,6 +99,19 @@ public class DepartmentController {
             @Parameter(description = "Department UUID") @PathVariable String departmentId) {
         departmentService.deleteDepartment(departmentId);
         return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/staffing-summary")
+    @Operation(summary = "Departments with active doctor counts",
+            description = "Only departments with at least one active doctor appear — an "
+                    + "unstaffed department is a gap to notice on `GET /api/v1/departments` "
+                    + "itself, not something buried among staffed ones here. Backed by a "
+                    + "`GROUP BY`/`HAVING` aggregate query "
+                    + "(`@SqlQueryBuilder(\"findDepartmentsWithDoctors\")`).")
+    @ApiResponse(responseCode = "200", description = "Staffing summary returned")
+    @RequirePermission(resource = Resource.DEPARTMENTS, action = PermissionAction.READ)
+    public ResponseEntity<ApiResult<List<DepartmentDoctorCountResponse>>> getStaffingSummary() {
+        return ResponseEntity.ok(ApiResult.of("Department staffing summary retrieved", departmentService.getStaffingSummary()));
     }
 
     @GetMapping("/{departmentId}/doctors")
