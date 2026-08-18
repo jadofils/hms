@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 
 /**
@@ -41,7 +42,7 @@ public class PrescriptionItemService {
         Prescription prescription = findPrescriptionOrThrow(prescriptionId);
         Medication medication = findMedicationOrThrow(request.getMedicationId());
 
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
         PrescriptionItem item = new PrescriptionItem();
         item.setPrescription(prescription);
         item.setMedication(medication);
@@ -62,14 +63,14 @@ public class PrescriptionItemService {
         item.setDosage(request.getDosage());
         item.setQuantity(request.getQuantity());
         item.setInstructions(request.getInstructions());
-        item.setUpdatedAt(LocalDateTime.now());
+        item.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
         return toResponse(prescriptionItemRepository.save(item));
     }
 
     @Transactional
     public void deleteItem(String prescriptionId, String itemId) {
         PrescriptionItem item = findItemOrThrow(prescriptionId, itemId);
-        item.setDeletedAt(LocalDateTime.now());
+        item.setDeletedAt(LocalDateTime.now(ZoneId.systemDefault()));
         prescriptionItemRepository.save(item);
     }
 
