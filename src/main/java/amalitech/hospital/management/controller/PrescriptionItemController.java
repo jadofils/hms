@@ -18,6 +18,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import io.micrometer.core.annotation.Timed;
 
 /**
  * Prescription line items — backed by {@link PrescriptionItemService}. See that class
@@ -26,6 +27,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/v1/prescriptions/{prescriptionId}/items")
 @Tag(name = "Prescription Items", description = "Medication line items within a prescription")
+@Timed(value = "hms.rest.requests", extraTags = {"layer", "rest"}, percentiles = {0.5, 0.95, 0.99})
 @RequiredArgsConstructor
 public class PrescriptionItemController {
 
