@@ -2,6 +2,7 @@ package amalitech.hospital.management.controller;
 
 import amalitech.hospital.management.annotation.RequirePermission;
 import amalitech.hospital.management.dto.common.ApiResult;
+import amalitech.hospital.management.dto.doctor.DoctorDepartmentRosterResponse;
 import amalitech.hospital.management.dto.doctor.DoctorRequest;
 import amalitech.hospital.management.dto.doctor.DoctorResponse;
 import amalitech.hospital.management.enums.PermissionAction;
@@ -22,6 +23,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+import io.micrometer.core.annotation.Timed;
+
 /**
  * Doctor management — backed by {@link DoctorService}. See that class for caching/
  * exception/transaction behavior; this layer only maps HTTP <-> DTOs.
@@ -29,6 +33,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/v1/doctors")
 @Tag(name = "Doctors", description = "Doctor records and department membership")
+@Timed(value = "hms.rest.requests", extraTags = {"layer", "rest"}, percentiles = {0.5, 0.95, 0.99})
 @RequiredArgsConstructor
 public class DoctorController {
 
@@ -96,6 +101,18 @@ public class DoctorController {
             @Parameter(description = "Doctor UUID") @PathVariable String doctorId) {
         doctorService.deleteDoctor(doctorId);
         return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/roster")
+    @Operation(summary = "Doctor roster with department names",
+            description = "One row per doctor-department pairing — a doctor in more than one "
+                    + "department appears once per department (unlike `GET /api/v1/doctors/{doctorId}`, "
+                    + "which nests every department under one doctor). Backed by a joined native "
+                    + "query (`@SqlQueryBuilder(\"findDoctorsByDepartment\")`).")
+    @ApiResponse(responseCode = "200", description = "Roster returned")
+    @RequirePermission(resource = Resource.DOCTORS, action = PermissionAction.READ)
+    public ResponseEntity<ApiResult<List<DoctorDepartmentRosterResponse>>> getDoctorDepartmentRoster() {
+        return ResponseEntity.ok(ApiResult.of("Doctor department roster retrieved", doctorService.getDoctorDepartmentRoster()));
     }
 
     // ── Department membership ────────────────────────────────────────────────
