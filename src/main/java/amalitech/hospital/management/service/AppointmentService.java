@@ -30,6 +30,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PagedModel;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Timestamp;
@@ -125,7 +126,23 @@ public class AppointmentService {
         return response;
     }
 
-    @Transactional
+    /**
+     * {@code Isolation.REPEATABLE_READ} (Postgres' own {@code REPEATABLE READ} is
+     * snapshot isolation, not the row-locking kind the SQL standard's name suggests) —
+     * the default {@code READ_COMMITTED} lets a second concurrent transaction's commit
+     * become visible mid-transaction, which matters here specifically because
+     * {@link #throwIfDoctorDoubleBooked} reads the doctor's appointments once and this
+     * method writes a new one afterward in the same transaction; a stable snapshot for
+     * the whole transaction is the correct level for a "check, then act on what I just
+     * checked" pattern. It's still not a complete fix on its own: two transactions
+     * started at nearly the same instant can each take their own snapshot before either
+     * commits, each see "no conflict," and both insert — full prevention needs either a
+     * DB-level unique constraint on {@code (doctor_id, appointment_date)} or
+     * {@code SERIALIZABLE} plus a commit-retry loop, neither of which this pass adds.
+     * Documented here as the honest boundary of what this isolation level buys, not
+     * oversold as closing the race outright.
+     */
+    @Transactional(isolation = Isolation.REPEATABLE_READ)
     public AppointmentResponse createAppointment(AppointmentRequest request) {
         Patient patient = findPatientOrThrow(request.getPatientId());
         Doctor doctor = findDoctorOrThrow(request.getDoctorId());
@@ -146,7 +163,8 @@ public class AppointmentService {
         return toResponse(saved);
     }
 
-    @Transactional
+    /** Same isolation-level reasoning as {@link #createAppointment} above. */
+    @Transactional(isolation = Isolation.REPEATABLE_READ)
     @CachePut(value = "appointments", key = "#appointmentId")
     public AppointmentResponse updateAppointment(String appointmentId, AppointmentRequest request) {
         Appointment appointment = findAppointmentOrThrow(appointmentId);
