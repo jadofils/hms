@@ -40,8 +40,15 @@ public class PrescriptionService {
     private final PrescriptionItemRepository prescriptionItemRepository;
     private final EventBus eventBus;
 
-    public PagedModel<PrescriptionResponse> getPrescriptions(Pageable pageable) {
-        return new PagedModel<>(prescriptionRepository.findAll(pageable).map(this::toResponse));
+    /** {@code patientId} is optional — omitted, this is every prescription; given, only
+     *  the prescriptions written for that patient's own appointments (e.g. a "this
+     *  patient's prescription history" view). */
+    public PagedModel<PrescriptionResponse> getPrescriptions(Pageable pageable, String patientId) {
+        if (patientId == null || patientId.isBlank()) {
+            return new PagedModel<>(prescriptionRepository.findAll(pageable).map(this::toResponse));
+        }
+        return new PagedModel<>(prescriptionRepository
+                .findByAppointment_Patient_PatientIdAndDeletedAtIsNull(patientId, pageable).map(this::toResponse));
     }
 
     /** Not populated by {@link #getPrescriptions} or by create/update — only by this

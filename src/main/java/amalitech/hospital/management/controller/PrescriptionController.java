@@ -38,20 +38,25 @@ public class PrescriptionController {
     private final PrescriptionService prescriptionService;
 
     @GetMapping
-    @Operation(summary = "List prescriptions (paginated, sortable)",
+    @Operation(summary = "List prescriptions (paginated, sortable, filterable)",
             description = "Standard `?sort=property,direction` query param (e.g. `sort=dateIssued,desc`) "
                     + "— backed directly by Spring Data JPA, so any `Prescription` field is sortable: "
                     + "`prescriptionId`, `dateIssued`, `createdAt`, `updatedAt`. Unlike `/api/v1/users`, "
                     + "an unrecognized property is not validated ahead of time and currently surfaces as "
-                    + "a 400 rather than silently falling back.")
+                    + "a 400 rather than silently falling back. Optional `patientId` query param filters "
+                    + "to one patient's own prescription history.")
     @ApiResponse(responseCode = "200", description = "Prescriptions returned")
     @Parameter(name = "sort", in = ParameterIn.QUERY,
             description = "Sort by property,direction. Possible properties: prescriptionId, "
                     + "dateIssued, createdAt, updatedAt.",
             array = @ArraySchema(schema = @Schema(type = "string")), example = "dateIssued,desc")
     @RequirePermission(resource = Resource.PRESCRIPTIONS, action = PermissionAction.READ)
-    public ResponseEntity<ApiResult<PagedModel<PrescriptionResponse>>> getPrescriptions(Pageable pageable) {
-        return ResponseEntity.ok(ApiResult.of("Prescriptions retrieved", prescriptionService.getPrescriptions(pageable)));
+    public ResponseEntity<ApiResult<PagedModel<PrescriptionResponse>>> getPrescriptions(
+            Pageable pageable,
+            @Parameter(description = "Filter to one patient's own prescription history")
+            @RequestParam(required = false) String patientId) {
+        return ResponseEntity.ok(
+                ApiResult.of("Prescriptions retrieved", prescriptionService.getPrescriptions(pageable, patientId)));
     }
 
     @GetMapping("/{prescriptionId}")

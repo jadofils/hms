@@ -37,8 +37,9 @@ public class PrescriptionResolver {
     private final PrescriptionItemService prescriptionItemService;
 
     @QueryMapping
-    public List<PrescriptionResponse> prescriptions(@Argument int page, @Argument int size, @Argument String sort) {
-        return prescriptionService.getPrescriptions(GraphQlPaging.of(page, size, sort)).getContent();
+    public List<PrescriptionResponse> prescriptions(@Argument int page, @Argument int size, @Argument String sort,
+            @Argument String patientId) {
+        return prescriptionService.getPrescriptions(GraphQlPaging.of(page, size, sort), patientId).getContent();
     }
 
     @QueryMapping

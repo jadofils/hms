@@ -16,6 +16,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PagedModel;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -25,6 +29,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -65,6 +70,30 @@ class PrescriptionServiceTest {
         existingPrescription.setPrescriptionId("presc-1");
         existingPrescription.setAppointment(existingAppointment);
         existingPrescription.setDateIssued(LocalDate.now());
+    }
+
+    @Test
+    void getPrescriptions_returnsEveryRow_whenNoPatientIdGiven() {
+        when(prescriptionRepository.findAll(any(PageRequest.class)))
+                .thenReturn(new PageImpl<>(List.of(existingPrescription)));
+
+        PagedModel<PrescriptionResponse> result =
+                prescriptionService.getPrescriptions(PageRequest.of(0, 20), null);
+
+        assertThat(result.getContent()).hasSize(1);
+        verify(prescriptionRepository, never())
+                .findByAppointment_Patient_PatientIdAndDeletedAtIsNull(any(), any());
+    }
+
+    @Test
+    void getPrescriptions_filtersByPatientId_whenGiven() {
+        Pageable pageable = PageRequest.of(0, 20);
+        when(prescriptionRepository.findByAppointment_Patient_PatientIdAndDeletedAtIsNull("patient-1", pageable))
+                .thenReturn(new PageImpl<>(List.of(existingPrescription)));
+
+        PagedModel<PrescriptionResponse> result = prescriptionService.getPrescriptions(pageable, "patient-1");
+
+        assertThat(result.getContent()).hasSize(1);
     }
 
     @Test
