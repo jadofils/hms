@@ -32,7 +32,22 @@ public class MedicalInventoryService {
     private final MedicalInventoryRepository medicalInventoryRepository;
     private final MedicationRepository medicationRepository;
 
-    public PagedModel<MedicalInventoryResponse> getInventoryRecords(Pageable pageable) {
+    /**
+     * {@code lowStock} and {@code medicationId} are independent, mutually exclusive
+     * filters (not combinable in one call) — {@code lowStock=true} wins if both are
+     * given. {@code lowStock} surfaces every batch at or below its own reorder
+     * threshold, a real pharmacy restock-alert worklist; {@code medicationId} surfaces
+     * every batch on hand for one medication.
+     */
+    public PagedModel<MedicalInventoryResponse> getInventoryRecords(
+            Pageable pageable, String medicationId, Boolean lowStock) {
+        if (Boolean.TRUE.equals(lowStock)) {
+            return new PagedModel<>(medicalInventoryRepository.findLowStock(pageable).map(this::toResponse));
+        }
+        if (medicationId != null && !medicationId.isBlank()) {
+            return new PagedModel<>(medicalInventoryRepository
+                    .findByMedication_MedicationIdAndDeletedAtIsNull(medicationId, pageable).map(this::toResponse));
+        }
         return new PagedModel<>(medicalInventoryRepository.findAll(pageable).map(this::toResponse));
     }
 

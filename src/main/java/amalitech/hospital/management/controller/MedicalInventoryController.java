@@ -37,22 +37,28 @@ public class MedicalInventoryController {
     private final MedicalInventoryService medicalInventoryService;
 
     @GetMapping
-    @Operation(summary = "List inventory records (paginated, sortable)",
+    @Operation(summary = "List inventory records (paginated, sortable, filterable)",
             description = "Standard `?sort=property,direction` query param (e.g. `sort=expiryDate,asc`) "
                     + "— backed directly by Spring Data JPA, so any `MedicalInventory` field is "
                     + "sortable: `inventoryId`, `batchNumber`, `expiryDate`, `quantityInStock`, "
                     + "`reorderLevel`, `supplier`, `createdAt`, `updatedAt`. Unlike `/api/v1/users`, an "
                     + "unrecognized property is not validated ahead of time and currently surfaces as a "
-                    + "400 rather than silently falling back.")
+                    + "400 rather than silently falling back. `lowStock=true` and `medicationId` are "
+                    + "independent, mutually exclusive filters — `lowStock` wins if both are given.")
     @ApiResponse(responseCode = "200", description = "Inventory records returned")
     @Parameter(name = "sort", in = ParameterIn.QUERY,
             description = "Sort by property,direction. Possible properties: inventoryId, batchNumber, "
                     + "expiryDate, quantityInStock, reorderLevel, supplier, createdAt, updatedAt.",
             array = @ArraySchema(schema = @Schema(type = "string")), example = "expiryDate,asc")
     @RequirePermission(resource = Resource.MEDICAL_INVENTORY, action = PermissionAction.READ)
-    public ResponseEntity<ApiResult<PagedModel<MedicalInventoryResponse>>> getInventoryRecords(Pageable pageable) {
+    public ResponseEntity<ApiResult<PagedModel<MedicalInventoryResponse>>> getInventoryRecords(
+            Pageable pageable,
+            @Parameter(description = "Filter to only batches at or below their own reorder level — a "
+                    + "restock-alert worklist") @RequestParam(required = false) Boolean lowStock,
+            @Parameter(description = "Filter to every batch on hand for one medication")
+            @RequestParam(required = false) String medicationId) {
         return ResponseEntity.ok(ApiResult.of("Inventory records retrieved",
-                medicalInventoryService.getInventoryRecords(pageable)));
+                medicalInventoryService.getInventoryRecords(pageable, medicationId, lowStock)));
     }
 
     @GetMapping("/{inventoryId}")

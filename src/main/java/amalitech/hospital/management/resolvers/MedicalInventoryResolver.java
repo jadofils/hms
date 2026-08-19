@@ -32,8 +32,10 @@ public class MedicalInventoryResolver {
     private final MedicationService medicationService;
 
     @QueryMapping
-    public List<MedicalInventoryResponse> inventoryRecords(@Argument int page, @Argument int size, @Argument String sort) {
-        return medicalInventoryService.getInventoryRecords(GraphQlPaging.of(page, size, sort)).getContent();
+    public List<MedicalInventoryResponse> inventoryRecords(@Argument int page, @Argument int size, @Argument String sort,
+            @Argument String medicationId, @Argument Boolean lowStock) {
+        return medicalInventoryService.getInventoryRecords(GraphQlPaging.of(page, size, sort), medicationId, lowStock)
+                .getContent();
     }
 
     @QueryMapping

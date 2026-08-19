@@ -12,14 +12,21 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PagedModel;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -48,6 +55,44 @@ class MedicalInventoryServiceTest {
         existingInventory.setExpiryDate(LocalDate.now().plusYears(1));
         existingInventory.setQuantityInStock(20);
         existingInventory.setReorderLevel(5);
+    }
+
+    @Test
+    void getInventoryRecords_returnsEveryRow_whenNoFilterGiven() {
+        when(medicalInventoryRepository.findAll(any(PageRequest.class)))
+                .thenReturn(new PageImpl<>(List.of(existingInventory)));
+
+        PagedModel<MedicalInventoryResponse> result =
+                medicalInventoryService.getInventoryRecords(PageRequest.of(0, 20), null, null);
+
+        assertThat(result.getContent()).hasSize(1);
+        verify(medicalInventoryRepository, never()).findLowStock(any());
+    }
+
+    @Test
+    void getInventoryRecords_filtersByLowStock_whenLowStockTrue() {
+        Pageable pageable = PageRequest.of(0, 20);
+        when(medicalInventoryRepository.findLowStock(pageable))
+                .thenReturn(new PageImpl<>(List.of(existingInventory)));
+
+        PagedModel<MedicalInventoryResponse> result =
+                medicalInventoryService.getInventoryRecords(pageable, "med-1", true);
+
+        // lowStock=true wins even though medicationId was also given.
+        assertThat(result.getContent()).hasSize(1);
+        verify(medicalInventoryRepository, never()).findByMedication_MedicationIdAndDeletedAtIsNull(any(), any());
+    }
+
+    @Test
+    void getInventoryRecords_filtersByMedicationId_whenOnlyMedicationIdGiven() {
+        Pageable pageable = PageRequest.of(0, 20);
+        when(medicalInventoryRepository.findByMedication_MedicationIdAndDeletedAtIsNull("med-1", pageable))
+                .thenReturn(new PageImpl<>(List.of(existingInventory)));
+
+        PagedModel<MedicalInventoryResponse> result =
+                medicalInventoryService.getInventoryRecords(pageable, "med-1", null);
+
+        assertThat(result.getContent()).hasSize(1);
     }
 
     @Test
