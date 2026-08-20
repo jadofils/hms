@@ -46,6 +46,30 @@ class MedicationServiceTest {
     }
 
     @Test
+    void getMedications_returnsEveryRow_whenLowStockNotRequested() {
+        when(medicationRepository.findAll(any(org.springframework.data.domain.PageRequest.class)))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(java.util.List.of(existingMedication)));
+
+        var result = medicationService.getMedications(
+                org.springframework.data.domain.PageRequest.of(0, 20), null);
+
+        assertThat(result.getContent()).hasSize(1);
+        verify(medicationRepository, never()).findLowStock(any());
+    }
+
+    @Test
+    void getMedications_filtersByLowStock_whenLowStockTrue() {
+        var pageable = org.springframework.data.domain.PageRequest.of(0, 20);
+        when(medicationRepository.findLowStock(pageable))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(java.util.List.of(existingMedication)));
+
+        var result = medicationService.getMedications(pageable, true);
+
+        assertThat(result.getContent()).hasSize(1);
+        assertThat(result.getContent().get(0).getName()).isEqualTo("Amoxicillin");
+    }
+
+    @Test
     void getMedication_returnsMappedResponse_whenFoundAndActive() {
         when(medicationRepository.findById("med-1")).thenReturn(Optional.of(existingMedication));
 

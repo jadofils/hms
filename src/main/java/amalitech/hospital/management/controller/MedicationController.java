@@ -37,20 +37,27 @@ public class MedicationController {
     private final MedicationService medicationService;
 
     @GetMapping
-    @Operation(summary = "List medications (paginated, sortable)",
+    @Operation(summary = "List medications (paginated, sortable, filterable)",
             description = "Standard `?sort=property,direction` query param (e.g. `sort=name,asc`) — "
                     + "backed directly by Spring Data JPA, so any `Medication` field is sortable: "
                     + "`medicationId`, `name`, `genericName`, `form`, `unitPrice`, `createdAt`, "
                     + "`updatedAt`. Unlike `/api/v1/users`, an unrecognized property is not validated "
-                    + "ahead of time and currently surfaces as a 400 rather than silently falling back.")
+                    + "ahead of time and currently surfaces as a 400 rather than silently falling back. "
+                    + "Optional `lowStock=true` narrows the catalog to medications needing reorder across "
+                    + "any of their own batches (distinct from `/api/v1/medical-inventory?lowStock=true`, "
+                    + "which lists the individual low batches rather than the medications themselves).")
     @ApiResponse(responseCode = "200", description = "Medications returned")
     @Parameter(name = "sort", in = ParameterIn.QUERY,
             description = "Sort by property,direction. Possible properties: medicationId, name, "
                     + "genericName, form, unitPrice, createdAt, updatedAt.",
             array = @ArraySchema(schema = @Schema(type = "string")), example = "name,asc")
     @RequirePermission(resource = Resource.MEDICATIONS, action = PermissionAction.READ)
-    public ResponseEntity<ApiResult<PagedModel<MedicationResponse>>> getMedications(Pageable pageable) {
-        return ResponseEntity.ok(ApiResult.of("Medications retrieved", medicationService.getMedications(pageable)));
+    public ResponseEntity<ApiResult<PagedModel<MedicationResponse>>> getMedications(
+            Pageable pageable,
+            @Parameter(description = "Filter to medications needing reorder across any of their own batches")
+            @RequestParam(required = false) Boolean lowStock) {
+        return ResponseEntity.ok(
+                ApiResult.of("Medications retrieved", medicationService.getMedications(pageable, lowStock)));
     }
 
     @GetMapping("/{medicationId}")

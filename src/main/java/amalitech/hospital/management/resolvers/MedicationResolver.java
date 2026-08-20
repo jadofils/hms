@@ -28,8 +28,9 @@ public class MedicationResolver {
     private final MedicationService medicationService;
 
     @QueryMapping
-    public List<MedicationResponse> medications(@Argument int page, @Argument int size, @Argument String sort) {
-        return medicationService.getMedications(GraphQlPaging.of(page, size, sort)).getContent();
+    public List<MedicationResponse> medications(@Argument int page, @Argument int size, @Argument String sort,
+            @Argument Boolean lowStock) {
+        return medicationService.getMedications(GraphQlPaging.of(page, size, sort), lowStock).getContent();
     }
 
     @QueryMapping

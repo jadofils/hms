@@ -30,7 +30,14 @@ public class MedicationService {
 
     private final MedicationRepository medicationRepository;
 
-    public PagedModel<MedicationResponse> getMedications(Pageable pageable) {
+    /** {@code lowStock=true} narrows the catalog to medications needing reorder across
+     *  any of their own batches — see {@link MedicationRepository#findLowStock}'s own
+     *  Javadoc for how this differs from {@code MedicalInventoryService}'s own
+     *  batch-level {@code lowStock} filter. Omitted, this is the full catalog. */
+    public PagedModel<MedicationResponse> getMedications(Pageable pageable, Boolean lowStock) {
+        if (Boolean.TRUE.equals(lowStock)) {
+            return new PagedModel<>(medicationRepository.findLowStock(pageable).map(this::toResponse));
+        }
         return new PagedModel<>(medicationRepository.findAll(pageable).map(this::toResponse));
     }
 

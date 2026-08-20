@@ -63,11 +63,31 @@ CRUD. Closed by:
   /api/v1/medical-inventory?lowStock=true`, and GraphQL's `inventoryRecords(lowStock:
   true)` — a real pharmacy restock-alert worklist, not a demo query.
 
-**JPQL `@Query` — already real, now with one more example.** Two pre-existing cases:
+**JPQL `@Query` — already real, now with two more examples.** Two pre-existing cases:
 `RolePermissionRepository.hasPermission` (checks a role→permission grant in one round
 trip for `AuthorizationAspect`) and `UserRepository.findActiveUsersIdleSince`
 (`MaintenanceService`'s idle-user deactivation). `MedicalInventoryRepository.findLowStock`
 above is the third.
+
+**Fourth — `MedicationRepository.findLowStock`**, added this pass. Distinct from
+`MedicalInventoryRepository.findLowStock` (which lists individual low-stock *batches*),
+this answers "which *medications* need reordering at all" — one row per medication no
+matter how many of its own batches are low. `Medication` has no mapped JPA relationship
+to `MedicalInventory` at all (the FK only exists on the inventory side), so this is an
+explicit cross-entity join filtered by `WHERE`, with `DISTINCT` since one medication can
+have several low-stock batches:
+```java
+@Query("""
+        SELECT DISTINCT m FROM Medication m, MedicalInventory i
+        WHERE i.medication = m AND i.quantityInStock <= i.reorderLevel
+          AND i.deletedAt IS NULL AND m.deletedAt IS NULL
+        """)
+Page<Medication> findLowStock(Pageable pageable);
+```
+Wired into `MedicationService.getMedications(pageable, lowStock)`, `GET
+/api/v1/medications?lowStock=true`, and GraphQL's `medications(lowStock: true)` — a
+pharmacist gets two complementary, genuinely different views from the two `lowStock`
+filters: "which batches" vs. "which medications."
 
 **Native SQL — not literally `@Query(nativeQuery = true)`, but the more sophisticated
 equivalent.** This project's native-SQL story is `@FindUserData`/`@SqlQueryBuilder` (see
