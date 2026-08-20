@@ -101,8 +101,20 @@ public class PatientService {
      * {@link PatientStatus}/{@link Gender}'s own allowed values first — only an
      * already-validated enum {@code dbValue} is ever concatenated into the query, mirroring
      * the safety the sort-column whitelist already relies on.
+     *
+     * <p>{@code minAge}, when given, wins over {@code status}/{@code gender} and bypasses
+     * {@code findPatientsPage} (the {@code @FindUserData}-driven listing) entirely in favor
+     * of {@link PatientRepository#findByMinAgeNative} — a genuinely native SQL query, not
+     * combinable with the other two filters in one call the way
+     * {@code MedicalInventoryService.getInventoryRecords}' {@code lowStock}/{@code medicationId}
+     * aren't either.
      */
-    public PagedModel<PatientResponse> getPatients(Pageable pageable, String status, String gender) {
+    public PagedModel<PatientResponse> getPatients(Pageable pageable, String status, String gender, Integer minAge) {
+        if (minAge != null) {
+            Page<PatientResponse> page = patientRepository.findByMinAgeNative(minAge, pageable).map(this::toResponse);
+            return new PagedModel<>(page);
+        }
+
         Sort.Order order = pageable.getSort().stream().findFirst().orElse(null);
         String sortBy = order != null ? order.getProperty() : null;
         String sortDir = order != null ? order.getDirection().name() : null;

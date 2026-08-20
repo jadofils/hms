@@ -29,8 +29,8 @@ public class PatientResolver {
 
     @QueryMapping
     public List<PatientResponse> patients(@Argument int page, @Argument int size, @Argument String sort,
-            @Argument String status, @Argument String gender) {
-        return patientService.getPatients(GraphQlPaging.of(page, size, sort), status, gender).getContent();
+            @Argument String status, @Argument String gender, @Argument Integer minAge) {
+        return patientService.getPatients(GraphQlPaging.of(page, size, sort), status, gender, minAge).getContent();
     }
 
     @QueryMapping

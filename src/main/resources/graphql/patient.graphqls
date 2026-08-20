@@ -28,8 +28,11 @@ extend type Query {
     """Sortable columns: patientId, firstName, lastName, dob, gender, phone, email,
     address, status. `sort` uses the same "property,direction" format REST's own
     `?sort=` query param does (e.g. "lastName,desc") — omitted or unrecognized falls
-    back to `patientId` ascending. `status`/`gender` optionally filter the list."""
-    patients(page: Int! = 0, size: Int! = 20, sort: String, status: String, gender: String): [Patient!]!
+    back to `patientId` ascending. `status`/`gender` optionally filter the list.
+    `minAge`, when given, wins over both and returns every patient at least that many
+    years old (a native SQL query — Postgres' AGE() function has no portable JPQL
+    equivalent)."""
+    patients(page: Int! = 0, size: Int! = 20, sort: String, status: String, gender: String, minAge: Int): [Patient!]!
     patient(patientId: ID!): Patient
 }
 

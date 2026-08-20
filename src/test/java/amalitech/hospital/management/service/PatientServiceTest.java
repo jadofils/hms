@@ -25,6 +25,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -38,6 +39,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -91,7 +93,7 @@ class PatientServiceTest {
         when(self.findPatientsPage(0, 20, null, null, null, null))
                 .thenReturn(new PagedRawResult(List.of((Object) row), 1L));
 
-        PagedModel<PatientResponse> result = patientService.getPatients(PageRequest.of(0, 20), null, null);
+        PagedModel<PatientResponse> result = patientService.getPatients(PageRequest.of(0, 20), null, null, null);
 
         assertThat(result.getContent()).hasSize(1);
         PatientResponse response = result.getContent().get(0);
@@ -108,7 +110,7 @@ class PatientServiceTest {
                 .thenReturn(new PagedRawResult(List.of(), 0L));
         Pageable sorted = PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "lastName"));
 
-        patientService.getPatients(sorted, null, null);
+        patientService.getPatients(sorted, null, null, null);
 
         verify(self).findPatientsPage(0, 20, "lastName", "DESC", null, null);
     }
@@ -118,15 +120,29 @@ class PatientServiceTest {
         when(self.findPatientsPage(0, 20, null, null, "active", "F"))
                 .thenReturn(new PagedRawResult(List.of(), 0L));
 
-        patientService.getPatients(PageRequest.of(0, 20), "Active", "f");
+        patientService.getPatients(PageRequest.of(0, 20), "Active", "f", null);
 
         verify(self).findPatientsPage(0, 20, null, null, "active", "F");
     }
 
     @Test
     void getPatients_throwsBadRequest_whenStatusFilterInvalid() {
-        assertThatThrownBy(() -> patientService.getPatients(PageRequest.of(0, 20), "bogus", null))
+        assertThatThrownBy(() -> patientService.getPatients(PageRequest.of(0, 20), "bogus", null, null))
                 .isInstanceOf(BadRequestException.class);
+    }
+
+    @Test
+    void getPatients_usesTheNativeMinAgeQuery_whenMinAgeGiven_bypassingFindPatientsPage() {
+        Pageable pageable = PageRequest.of(0, 20);
+        when(patientRepository.findByMinAgeNative(65, pageable))
+                .thenReturn(new PageImpl<>(List.of(existingPatient)));
+
+        PagedModel<PatientResponse> result = patientService.getPatients(pageable, "active", "f", 65);
+
+        assertThat(result.getContent()).hasSize(1);
+        assertThat(result.getContent().get(0).getPatientId()).isEqualTo("patient-1");
+        // minAge wins over status/gender — the @FindUserData-driven path is never touched.
+        verify(self, never()).findPatientsPage(anyInt(), anyInt(), any(), any(), any(), any());
     }
 
     // ── getPatient ───────────────────────────────────────────────────────────

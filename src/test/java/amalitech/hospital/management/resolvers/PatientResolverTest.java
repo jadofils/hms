@@ -58,14 +58,14 @@ class PatientResolverTest {
     @Test
     void patients_returnsPagedContent() {
         Pageable pageable = org.springframework.data.domain.PageRequest.of(0, 20);
-        when(patientService.getPatients(any(), any(), any()))
+        when(patientService.getPatients(any(), any(), any(), any()))
                 .thenReturn(new PagedModel<>(new PageImpl<>(List.of(existingPatient()), pageable, 1)));
 
         graphQlTester.document("{ patients(page: 0, size: 20) { patientId } }")
                 .execute()
                 .path("patients[0].patientId").entity(String.class).isEqualTo("patient-1");
 
-        verify(patientService).getPatients(any(), any(), any());
+        verify(patientService).getPatients(any(), any(), any(), any());
     }
 
     @Test

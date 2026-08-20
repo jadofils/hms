@@ -43,7 +43,10 @@ public class PatientController {
                     + "Sortable columns: `patientId`, `firstName`, `lastName`, `dob`, "
                     + "`gender`, `phone`, `email`, `address`, `status`. An omitted or "
                     + "unrecognized column never errors — it falls back to `patientId` "
-                    + "ascending. Optional `status`/`gender` query params filter the list.")
+                    + "ascending. Optional `status`/`gender` query params filter the list. "
+                    + "`minAge`, when given, wins over both and returns every patient at "
+                    + "least that many years old (a native SQL query — Postgres' AGE() "
+                    + "function has no portable JPQL equivalent).")
     @ApiResponse(responseCode = "200", description = "Patients returned")
     @Parameter(name = "sort", in = ParameterIn.QUERY,
             description = "Sort by property,direction. Possible properties: patientId, firstName, "
@@ -55,8 +58,11 @@ public class PatientController {
             @Parameter(description = "Filter by status: active, inactive")
             @RequestParam(required = false) String status,
             @Parameter(description = "Filter by gender: M, F, Other")
-            @RequestParam(required = false) String gender) {
-        return ResponseEntity.ok(ApiResult.of("Patients retrieved", patientService.getPatients(pageable, status, gender)));
+            @RequestParam(required = false) String gender,
+            @Parameter(description = "Filter to patients at least this many years old — wins over status/gender")
+            @RequestParam(required = false) Integer minAge) {
+        return ResponseEntity.ok(
+                ApiResult.of("Patients retrieved", patientService.getPatients(pageable, status, gender, minAge)));
     }
 
     @GetMapping("/{patientId}")

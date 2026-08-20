@@ -89,15 +89,41 @@ Wired into `MedicationService.getMedications(pageable, lowStock)`, `GET
 pharmacist gets two complementary, genuinely different views from the two `lowStock`
 filters: "which batches" vs. "which medications."
 
-**Native SQL — not literally `@Query(nativeQuery = true)`, but the more sophisticated
-equivalent.** This project's native-SQL story is `@FindUserData`/`@SqlQueryBuilder` (see
-`docs/annotations-reference.md`) — a fluent `QueryBuilder` assembling real native SQL,
-executed via `EntityManager.createNativeQuery`, driving every paginated listing's
-column-sort whitelisting and every cross-table analytics query (`findRolesWithPermissionCount`,
-`findDoctorsByDepartment`, `findDepartmentsWithDoctors`). This satisfies "native SQL
-queries" more thoroughly than a couple of standalone `@Query(nativeQuery = true)` methods
-would — it's the same underlying JDBC-level native SQL execution, just built
-programmatically and reused across many listings instead of hand-written per method.
+**Native SQL — both the project's own sophisticated mechanism, and now a literal
+`@Query(nativeQuery = true)` example too.** The bulk of this project's native-SQL story
+is `@FindUserData`/`@SqlQueryBuilder` (see `docs/annotations-reference.md`) — a fluent
+`QueryBuilder` assembling real native SQL, executed via `EntityManager.createNativeQuery`,
+driving every paginated listing's column-sort whitelisting and every cross-table
+analytics query (`findRolesWithPermissionCount`, `findDoctorsByDepartment`,
+`findDepartmentsWithDoctors`). That's the same underlying JDBC-level native SQL execution
+a plain `@Query(nativeQuery = true)` method would use, just built programmatically and
+reused across many listings instead of hand-written per method.
+
+Alongside it, **`PatientRepository.findByMinAgeNative`** is the literal, textbook form:
+```java
+@Query(value = """
+        SELECT * FROM patients
+        WHERE EXTRACT(YEAR FROM AGE(CURRENT_DATE, dob)) >= :age AND deleted_at IS NULL
+        """,
+        countQuery = """
+        SELECT COUNT(*) FROM patients
+        WHERE EXTRACT(YEAR FROM AGE(CURRENT_DATE, dob)) >= :age AND deleted_at IS NULL
+        """,
+        nativeQuery = true)
+Page<Patient> findByMinAgeNative(@Param("age") int age, Pageable pageable);
+```
+Chosen because it's a genuine case where native SQL is the *only* option, not a
+stylistic pick — Postgres' `AGE()` function (used here specifically instead of a flat
+`365`-day approximation, so leap years don't skew the result) has no portable JPQL
+equivalent at all; JPQL's function set is deliberately database-agnostic. A native query
+mapped to an entity type still needs an explicit `countQuery` for `Page<T>` — Spring Data
+can't always derive one from an arbitrary native SQL string the way it can from JPQL.
+Wired into `PatientService.getPatients`' `minAge` filter (`GET
+/api/v1/patients?minAge=65`, GraphQL `patients(minAge: 65)`) — verified live against the
+real dev database, returning real patients by computed age. `minAge` wins over
+`status`/`gender` and bypasses the `@FindUserData` path entirely when given, the same
+"filters aren't always combinable in one call" precedent `MedicalInventoryService`'s
+`lowStock`/`medicationId` already set.
 
 **User Story 2.2** — *As a receptionist, I want to browse data using pagination and
 sorting.* Already fully covered by v1's build — every listing endpoint takes a `Pageable`
