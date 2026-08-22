@@ -36,6 +36,7 @@ import amalitech.hospital.management.repository.patient.ReferralRepository;
 import amalitech.hospital.management.repository.patient.VitalSignRepository;
 import amalitech.hospital.management.utils.filters.PagedRawResult;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.CachePut;
 import org.springframework.cache.annotation.Cacheable;
@@ -51,6 +52,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
 
 /**
  * Patient CRUD.
@@ -78,14 +83,30 @@ public class PatientService {
     private final VitalSignRepository vitalSignRepository;
     private final ReferralRepository referralRepository;
 
+    // Backs getPatient's CompletableFuture fan-out (HMS v5) — @Qualifier since a plain
+    // Executor-typed field would otherwise be ambiguous against AsyncConfig's other bean,
+    // mailTaskExecutor.
+    @Qualifier("patientProfileExecutor")
+    private final Executor patientProfileExecutor;
+
     /**
      * Self-injected proxy reference, used only to call this class's own
      * {@code @FindUserData}-annotated method through the Spring AOP proxy — see
      * {@link #findPatientsPage}. {@code @Lazy} breaks the circular dependency this creates
-     * at bean-creation time.
+     * at bean-creation time. Also used (HMS v5) to dispatch {@link #getPatient}'s 9
+     * {@code @Transactional} fetch methods so each one runs through the real proxy, not
+     * a same-class {@code this.} call the proxy would never see.
      */
     @Lazy
     private final PatientService self;
+
+    // Single-flight dedup for getPatient's cache-miss path (HMS v5) — @Cacheable above
+    // has no sync=true, so without this, N concurrent requests for the same never-cached
+    // patientId would each independently launch their own 9-way CompletableFuture
+    // fan-out. Entries are removed as soon as their future completes (success or
+    // failure) — see startPatientProfileFetch.
+    private final ConcurrentHashMap<String, CompletableFuture<PatientResponse>> inFlightPatientFetches =
+            new ConcurrentHashMap<>();
 
     /**
      * Listing is served through {@link #findPatientsPage}, an {@code @FindUserData}-annotated
@@ -161,29 +182,142 @@ public class PatientService {
      * {@code PatientResponse}'s Javadoc. Not populated by {@link #getPatients} or by
      * create/update, same convention as {@code DoctorService.getDoctor}/
      * {@code UserService.getUser}/{@code RoleService.getRole}.
+     *
+     * <p>HMS v5 — the 9 independent lookups below (the core patient row plus 8
+     * associated collections) used to run sequentially; each is now dispatched in
+     * parallel via {@link #patientProfileExecutor}, joined once all 9 complete. Real
+     * before/after latency: see {@code docs/patient-profile-performance-report.md}
+     * ({@code PatientProfileBenchmarkTest}). Was never {@code @Transactional} itself
+     * (each repository call always ran as its own short-lived Spring-Data-managed
+     * transaction, sequentially) — parallelizing changes no existing transactional
+     * guarantee, it just runs those same 9 independent transactions concurrently
+     * instead of one after another.
+     *
+     * <p>{@link #inFlightPatientFetches} dedupes concurrent cache <em>misses</em> for
+     * the same {@code patientId} — see that field's own Javadoc for why.
      */
     @Cacheable(value = "patients", key = "#patientId")
     public PatientResponse getPatient(String patientId) {
-        Patient patient = findPatientOrThrow(patientId);
-        PatientResponse response = toResponse(patient);
-        response.setAppointments(appointmentRepository.findByPatient_PatientIdAndDeletedAtIsNull(patientId).stream()
-                .map(this::toAppointmentResponse).toList());
-        response.setInvoices(invoiceRepository.findByPatient_PatientIdAndDeletedAtIsNull(patientId).stream()
-                .map(this::toInvoiceResponse).toList());
-        response.setAllergies(patientAllergyRepository.findByPatient_PatientIdAndDeletedAtIsNull(patientId).stream()
-                .map(this::toAllergyResponse).toList());
-        response.setFeedback(patientFeedbackRepository.findByPatient_PatientIdAndDeletedAtIsNull(patientId).stream()
-                .map(this::toFeedbackResponse).toList());
-        response.setNotes(patientNoteRepository.findByPatient_PatientIdAndDeletedAtIsNull(patientId).stream()
-                .map(this::toNoteResponse).toList());
-        response.setMedicalRecords(medicalRecordRepository
-                .findByAppointment_Patient_PatientIdAndDeletedAtIsNull(patientId).stream()
-                .map(this::toMedicalRecordResponse).toList());
-        response.setVitalSigns(vitalSignRepository.findByAppointment_Patient_PatientIdAndDeletedAtIsNull(patientId)
-                .stream().map(this::toVitalSignResponse).toList());
-        response.setReferrals(referralRepository.findByAppointment_Patient_PatientIdAndDeletedAtIsNull(patientId)
-                .stream().map(this::toReferralResponse).toList());
-        return response;
+        CompletableFuture<PatientResponse> future =
+                inFlightPatientFetches.computeIfAbsent(patientId, this::startPatientProfileFetch);
+        try {
+            return future.join();
+        } catch (CompletionException e) {
+            if (e.getCause() instanceof RuntimeException re) {
+                throw re;
+            }
+            throw e;
+        }
+    }
+
+    /** Kicks off {@link #fetchPatientProfile} and arranges for its map entry to be
+     *  removed the moment it completes, success or failure — never left behind to
+     *  serve a stale in-flight reference to the next, unrelated cache-miss request for
+     *  the same id. */
+    private CompletableFuture<PatientResponse> startPatientProfileFetch(String patientId) {
+        CompletableFuture<PatientResponse> future = fetchPatientProfile(patientId);
+        future.whenComplete((response, ex) -> inFlightPatientFetches.remove(patientId));
+        return future;
+    }
+
+    /** The actual 9-way fan-out — each fetch dispatched through {@link #self} so its own
+     *  {@code @Transactional(readOnly = true)} runs through the real Spring proxy, not a
+     *  same-class {@code this.} call the proxy would never see (same reasoning as
+     *  {@link #findPatientsPage}'s self-injection). Every finder each of these 9 methods
+     *  calls carries its own {@code @EntityGraph} (see the matching repository), so no
+     *  lazy load happens after the query returns — the explicit {@code @Transactional}
+     *  here is a correctness boundary independent of that, not a workaround for it. */
+    private CompletableFuture<PatientResponse> fetchPatientProfile(String patientId) {
+        CompletableFuture<PatientResponse> coreFuture =
+                CompletableFuture.supplyAsync(() -> self.fetchPatientCore(patientId), patientProfileExecutor);
+        CompletableFuture<List<AppointmentResponse>> appointmentsFuture =
+                CompletableFuture.supplyAsync(() -> self.fetchAppointments(patientId), patientProfileExecutor);
+        CompletableFuture<List<InvoiceResponse>> invoicesFuture =
+                CompletableFuture.supplyAsync(() -> self.fetchInvoices(patientId), patientProfileExecutor);
+        CompletableFuture<List<PatientAllergyResponse>> allergiesFuture =
+                CompletableFuture.supplyAsync(() -> self.fetchAllergies(patientId), patientProfileExecutor);
+        CompletableFuture<List<PatientFeedbackResponse>> feedbackFuture =
+                CompletableFuture.supplyAsync(() -> self.fetchFeedback(patientId), patientProfileExecutor);
+        CompletableFuture<List<PatientNoteResponse>> notesFuture =
+                CompletableFuture.supplyAsync(() -> self.fetchNotes(patientId), patientProfileExecutor);
+        CompletableFuture<List<MedicalRecordResponse>> medicalRecordsFuture =
+                CompletableFuture.supplyAsync(() -> self.fetchMedicalRecords(patientId), patientProfileExecutor);
+        CompletableFuture<List<VitalSignResponse>> vitalSignsFuture =
+                CompletableFuture.supplyAsync(() -> self.fetchVitalSigns(patientId), patientProfileExecutor);
+        CompletableFuture<List<ReferralResponse>> referralsFuture =
+                CompletableFuture.supplyAsync(() -> self.fetchReferrals(patientId), patientProfileExecutor);
+
+        return CompletableFuture.allOf(coreFuture, appointmentsFuture, invoicesFuture, allergiesFuture,
+                        feedbackFuture, notesFuture, medicalRecordsFuture, vitalSignsFuture, referralsFuture)
+                .thenApply(v -> {
+                    PatientResponse response = coreFuture.join();
+                    response.setAppointments(appointmentsFuture.join());
+                    response.setInvoices(invoicesFuture.join());
+                    response.setAllergies(allergiesFuture.join());
+                    response.setFeedback(feedbackFuture.join());
+                    response.setNotes(notesFuture.join());
+                    response.setMedicalRecords(medicalRecordsFuture.join());
+                    response.setVitalSigns(vitalSignsFuture.join());
+                    response.setReferrals(referralsFuture.join());
+                    return response;
+                });
+    }
+
+    // ── getPatient's 9 parallel fetch units (HMS v5) ────────────────────────────
+    // Each called only via self.fetchXxx(...) from fetchPatientProfile above, never
+    // this.fetchXxx(...) — see that method's own Javadoc.
+
+    @Transactional(readOnly = true)
+    public PatientResponse fetchPatientCore(String patientId) {
+        return toResponse(findPatientOrThrow(patientId));
+    }
+
+    @Transactional(readOnly = true)
+    public List<AppointmentResponse> fetchAppointments(String patientId) {
+        return appointmentRepository.findByPatient_PatientIdAndDeletedAtIsNull(patientId).stream()
+                .map(this::toAppointmentResponse).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<InvoiceResponse> fetchInvoices(String patientId) {
+        return invoiceRepository.findByPatient_PatientIdAndDeletedAtIsNull(patientId).stream()
+                .map(this::toInvoiceResponse).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<PatientAllergyResponse> fetchAllergies(String patientId) {
+        return patientAllergyRepository.findByPatient_PatientIdAndDeletedAtIsNull(patientId).stream()
+                .map(this::toAllergyResponse).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<PatientFeedbackResponse> fetchFeedback(String patientId) {
+        return patientFeedbackRepository.findByPatient_PatientIdAndDeletedAtIsNull(patientId).stream()
+                .map(this::toFeedbackResponse).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<PatientNoteResponse> fetchNotes(String patientId) {
+        return patientNoteRepository.findByPatient_PatientIdAndDeletedAtIsNull(patientId).stream()
+                .map(this::toNoteResponse).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<MedicalRecordResponse> fetchMedicalRecords(String patientId) {
+        return medicalRecordRepository.findByAppointment_Patient_PatientIdAndDeletedAtIsNull(patientId).stream()
+                .map(this::toMedicalRecordResponse).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<VitalSignResponse> fetchVitalSigns(String patientId) {
+        return vitalSignRepository.findByAppointment_Patient_PatientIdAndDeletedAtIsNull(patientId)
+                .stream().map(this::toVitalSignResponse).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<ReferralResponse> fetchReferrals(String patientId) {
+        return referralRepository.findByAppointment_Patient_PatientIdAndDeletedAtIsNull(patientId)
+                .stream().map(this::toReferralResponse).toList();
     }
 
     @Transactional

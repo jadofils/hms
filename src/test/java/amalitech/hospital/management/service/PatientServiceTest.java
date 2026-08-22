@@ -1,5 +1,6 @@
 package amalitech.hospital.management.service;
 
+import amalitech.hospital.management.dto.patient.PatientAllergyResponse;
 import amalitech.hospital.management.dto.patient.PatientRequest;
 import amalitech.hospital.management.dto.patient.PatientResponse;
 import amalitech.hospital.management.enums.Gender;
@@ -70,7 +71,8 @@ class PatientServiceTest {
     void setUp() {
         patientService = new PatientService(patientRepository, appointmentRepository, invoiceRepository,
                 patientAllergyRepository, patientFeedbackRepository, patientNoteRepository,
-                medicalRecordRepository, vitalSignRepository, referralRepository, self);
+                medicalRecordRepository, vitalSignRepository, referralRepository,
+                Runnable::run, self);
 
         existingPatient = new Patient();
         existingPatient.setPatientId("patient-1");
@@ -145,20 +147,31 @@ class PatientServiceTest {
         verify(self, never()).findPatientsPage(anyInt(), anyInt(), any(), any(), any(), any());
     }
 
-    // ── getPatient ───────────────────────────────────────────────────────────
+    // ── getPatient (HMS v5 — orchestration only; self.fetchXxx is mocked, matching
+    //    CLAUDE.md's self-injection testing convention) ───────────────────────────
+    // The 9 fetch methods' own real logic (repository call + mapping, previously
+    // exercised here directly) now has its own tests below, under "getPatient's fetch
+    // methods" — getPatient itself is pure fan-out/join orchestration once self is mocked.
 
     @Test
-    void getPatient_returnsMappedResponse_whenFoundAndActive() {
-        when(patientRepository.findById("patient-1")).thenReturn(Optional.of(existingPatient));
+    void getPatient_assemblesOneResponseFromAllNineParallelFetches() {
+        PatientResponse core = new PatientResponse();
+        core.setPatientId("patient-1");
+        core.setFirstName("Alice");
+        core.setGender("F");
+        when(self.fetchPatientCore("patient-1")).thenReturn(core);
+        PatientAllergyResponse allergy = new PatientAllergyResponse();
+        allergy.setAllergen("Penicillin");
+        when(self.fetchAllergies("patient-1")).thenReturn(List.of(allergy));
+        // Every other self.fetchXxx("patient-1") call is left unstubbed — Mockito's
+        // default answer for a List-returning method is an empty list, not null.
 
         PatientResponse response = patientService.getPatient("patient-1");
 
         assertThat(response.getPatientId()).isEqualTo("patient-1");
         assertThat(response.getFirstName()).isEqualTo("Alice");
         assertThat(response.getGender()).isEqualTo("F");
-        // Unstubbed repositories default to an empty list (Mockito), not null — every
-        // eager-loaded collection should still come back as an empty list, never null.
-        assertThat(response.getAllergies()).isEmpty();
+        assertThat(response.getAllergies()).extracting("allergen").containsExactly("Penicillin");
         assertThat(response.getAppointments()).isEmpty();
         assertThat(response.getInvoices()).isEmpty();
         assertThat(response.getFeedback()).isEmpty();
@@ -169,8 +182,105 @@ class PatientServiceTest {
     }
 
     @Test
-    void getPatient_eagerLoadsLinkedAllergies_unlikeThePaginatedListing() {
+    void getPatient_propagatesTheOriginalException_notACompletionExceptionWrapper() {
+        when(self.fetchPatientCore("missing")).thenThrow(new NotFoundException("Patient not found: missing"));
+
+        assertThatThrownBy(() -> patientService.getPatient("missing"))
+                .isInstanceOf(NotFoundException.class)
+                .isNotInstanceOf(java.util.concurrent.CompletionException.class);
+    }
+
+    @Test
+    void getPatient_dedupesConcurrentMisses_forTheSamePatientId() throws Exception {
+        // Real self-dispatch (not mocked) + a real fixed thread pool + a latch that
+        // holds every caller at the same starting line — proves the ConcurrentHashMap
+        // single-flight logic actually collapses N concurrent misses into one
+        // underlying fetch, not just "happens to look that way" from running sequentially.
+        PatientService realSelfService = new PatientService(patientRepository, appointmentRepository,
+                invoiceRepository, patientAllergyRepository, patientFeedbackRepository, patientNoteRepository,
+                medicalRecordRepository, vitalSignRepository, referralRepository,
+                java.util.concurrent.Executors.newFixedThreadPool(8), null);
+        setSelfTo(realSelfService, realSelfService);
+
+        java.util.concurrent.CountDownLatch releaseAll = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicInteger realFetchCount = new java.util.concurrent.atomic.AtomicInteger();
+        when(patientRepository.findById("patient-1")).thenAnswer(inv -> {
+            realFetchCount.incrementAndGet();
+            releaseAll.await(2, java.util.concurrent.TimeUnit.SECONDS);
+            return Optional.of(existingPatient);
+        });
+
+        int callers = 6;
+        java.util.concurrent.ExecutorService callerPool = java.util.concurrent.Executors.newFixedThreadPool(callers);
+        List<java.util.concurrent.Future<PatientResponse>> futures = new java.util.ArrayList<>();
+        for (int i = 0; i < callers; i++) {
+            futures.add(callerPool.submit(() -> realSelfService.getPatient("patient-1")));
+        }
+        Thread.sleep(100); // let every caller reach computeIfAbsent before releasing the fetch
+        releaseAll.countDown();
+
+        for (java.util.concurrent.Future<PatientResponse> f : futures) {
+            assertThat(f.get(2, java.util.concurrent.TimeUnit.SECONDS).getPatientId()).isEqualTo("patient-1");
+        }
+        callerPool.shutdown();
+        // The whole point: 6 concurrent callers, but the underlying row lookup ran once.
+        assertThat(realFetchCount.get()).isEqualTo(1);
+    }
+
+    @Test
+    void getPatient_doesNotBlockADifferentPatientId_whileAnotherIsInFlight() throws Exception {
+        PatientService realSelfService = new PatientService(patientRepository, appointmentRepository,
+                invoiceRepository, patientAllergyRepository, patientFeedbackRepository, patientNoteRepository,
+                medicalRecordRepository, vitalSignRepository, referralRepository,
+                java.util.concurrent.Executors.newFixedThreadPool(8), null);
+        setSelfTo(realSelfService, realSelfService);
+
+        java.util.concurrent.CountDownLatch holdPatientOne = new java.util.concurrent.CountDownLatch(1);
+        when(patientRepository.findById("patient-1")).thenAnswer(inv -> {
+            holdPatientOne.await(2, java.util.concurrent.TimeUnit.SECONDS);
+            return Optional.of(existingPatient);
+        });
+        Patient otherPatient = new Patient();
+        otherPatient.setPatientId("patient-2");
+        otherPatient.setGender(Gender.M);
+        otherPatient.setStatus(PatientStatus.ACTIVE);
+        when(patientRepository.findById("patient-2")).thenReturn(Optional.of(otherPatient));
+
+        java.util.concurrent.ExecutorService callerPool = java.util.concurrent.Executors.newFixedThreadPool(2);
+        java.util.concurrent.Future<PatientResponse> blockedOne = callerPool.submit(() -> realSelfService.getPatient("patient-1"));
+        // patient-2 must complete well before patient-1's latch is ever released.
+        PatientResponse two = callerPool.submit(() -> realSelfService.getPatient("patient-2")).get(2, java.util.concurrent.TimeUnit.SECONDS);
+        assertThat(two.getPatientId()).isEqualTo("patient-2");
+
+        holdPatientOne.countDown();
+        assertThat(blockedOne.get(2, java.util.concurrent.TimeUnit.SECONDS).getPatientId()).isEqualTo("patient-1");
+        callerPool.shutdown();
+    }
+
+    /** Reassigns the {@code self} field via reflection — only the concurrency tests
+     *  above need a real (non-mocked) self-reference; every other test keeps the
+     *  standard mocked {@code self} set up in {@link #setUp}. */
+    private static void setSelfTo(PatientService target, PatientService self) throws Exception {
+        java.lang.reflect.Field field = PatientService.class.getDeclaredField("self");
+        field.setAccessible(true);
+        field.set(target, self);
+    }
+
+    // ── getPatient's fetch methods (real repository-mock-backed logic) ─────────
+
+    @Test
+    void fetchPatientCore_returnsMappedResponse_whenFoundAndActive() {
         when(patientRepository.findById("patient-1")).thenReturn(Optional.of(existingPatient));
+
+        PatientResponse response = patientService.fetchPatientCore("patient-1");
+
+        assertThat(response.getPatientId()).isEqualTo("patient-1");
+        assertThat(response.getFirstName()).isEqualTo("Alice");
+        assertThat(response.getGender()).isEqualTo("F");
+    }
+
+    @Test
+    void fetchAllergies_mapsRepositoryRows() {
         PatientAllergy allergy = new PatientAllergy();
         allergy.setAllergyId("allergy-1");
         allergy.setAllergen("Penicillin");
@@ -178,26 +288,26 @@ class PatientServiceTest {
         when(patientAllergyRepository.findByPatient_PatientIdAndDeletedAtIsNull("patient-1"))
                 .thenReturn(List.of(allergy));
 
-        PatientResponse response = patientService.getPatient("patient-1");
+        List<PatientAllergyResponse> allergies = patientService.fetchAllergies("patient-1");
 
-        assertThat(response.getAllergies()).hasSize(1);
-        assertThat(response.getAllergies().get(0).getAllergen()).isEqualTo("Penicillin");
+        assertThat(allergies).hasSize(1);
+        assertThat(allergies.get(0).getAllergen()).isEqualTo("Penicillin");
     }
 
     @Test
-    void getPatient_throwsNotFound_whenAbsent() {
+    void fetchPatientCore_throwsNotFound_whenAbsent() {
         when(patientRepository.findById("missing")).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> patientService.getPatient("missing"))
+        assertThatThrownBy(() -> patientService.fetchPatientCore("missing"))
                 .isInstanceOf(NotFoundException.class);
     }
 
     @Test
-    void getPatient_throwsNotFound_whenSoftDeleted() {
+    void fetchPatientCore_throwsNotFound_whenSoftDeleted() {
         existingPatient.setDeletedAt(LocalDateTime.now());
         when(patientRepository.findById("patient-1")).thenReturn(Optional.of(existingPatient));
 
-        assertThatThrownBy(() -> patientService.getPatient("patient-1"))
+        assertThatThrownBy(() -> patientService.fetchPatientCore("patient-1"))
                 .isInstanceOf(NotFoundException.class);
     }
 
