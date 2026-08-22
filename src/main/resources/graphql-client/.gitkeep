@@ -1,0 +1,7 @@
+This directory exists only so graphqlcodegen-maven-plugin's "dgs-codegen"
+execution (pom.xml) doesn't fail the build with "Configured path ... does not
+exist" — CLAUDE.md's claim that a missing directory here is a harmless no-op
+is wrong for this plugin version; it throws a hard PluginExecutionException
+instead. See CLAUDE.md's GraphQL codegen section for what this is for
+(client-code generation from *.graphqls schema files) — none exist here yet,
+so this stays empty until a real client schema is added.
