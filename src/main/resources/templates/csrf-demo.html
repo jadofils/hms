@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8"/>
+    <title>CSRF Token Mechanism — Demo</title>
+    <style>
+        :root {
+            --bg: #f4f6f8;
+            --panel: #ffffff;
+            --border: #e0e4e8;
+            --text: #1f2933;
+            --muted: #52606d;
+            --ok: #15803d;
+            --ok-bg: #dcfce7;
+            --bad: #b91c1c;
+            --bad-bg: #fee2e2;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.5;
+        }
+        header {
+            padding: 2rem 2rem 1.5rem;
+            background: linear-gradient(120deg, #1e293b, #334155);
+            color: #f8fafc;
+        }
+        header h1 { margin: 0 0 0.4rem; font-size: 1.7rem; }
+        header p { margin: 0; color: #cbd5e1; max-width: 60rem; }
+        main { max-width: 60rem; margin: 0 auto; padding: 1.5rem 2rem 3rem; }
+
+        .banner {
+            border-radius: 0.5rem;
+            padding: 0.9rem 1.2rem;
+            margin: 0 0 1.5rem;
+            font-size: 0.92rem;
+        }
+        .banner.ok { background: var(--ok-bg); color: var(--ok); border: 1px solid #bbf7d0; }
+
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            padding: 1.2rem 1.5rem;
+            margin: 0 0 1.5rem;
+        }
+        .panel h2 { margin: 0 0 0.5rem; font-size: 1.1rem; }
+        .panel p.subtitle { margin: 0 0 1rem; font-size: 0.85rem; color: var(--muted); }
+        .panel code {
+            background: #f1f5f9;
+            padding: 0.1rem 0.35rem;
+            border-radius: 0.25rem;
+            font-size: 0.85em;
+        }
+
+        .token-box {
+            font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+            font-size: 0.8rem;
+            background: #f8fafc;
+            border: 1px solid var(--border);
+            border-radius: 0.4rem;
+            padding: 0.6rem 0.8rem;
+            word-break: break-all;
+            margin: 0 0 1rem;
+        }
+
+        .forms {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+            gap: 1rem;
+        }
+        .form-card {
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            padding: 1rem 1.2rem;
+        }
+        .form-card.valid { border-color: #bbf7d0; background: #f0fdf4; }
+        .form-card.invalid { border-color: #fecaca; background: #fef2f2; }
+        .form-card h3 { margin: 0 0 0.3rem; font-size: 0.98rem; }
+        .form-card p { margin: 0 0 0.8rem; font-size: 0.82rem; color: var(--muted); }
+        .form-card label { display: block; font-size: 0.8rem; margin-bottom: 0.3rem; color: var(--muted); }
+        .form-card input[type="text"] {
+            width: 100%;
+            padding: 0.45rem 0.6rem;
+            border: 1px solid var(--border);
+            border-radius: 0.35rem;
+            margin-bottom: 0.7rem;
+            font-size: 0.88rem;
+        }
+        .form-card button {
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 0.35rem;
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .form-card.valid button { background: var(--ok); color: white; }
+        .form-card.invalid button { background: var(--bad); color: white; }
+
+        .expect { font-size: 0.78rem; margin-top: 0.7rem; padding: 0.5rem 0.7rem; border-radius: 0.35rem; }
+        .expect.ok { background: var(--ok-bg); color: var(--ok); }
+        .expect.bad { background: var(--bad-bg); color: var(--bad); }
+
+        footer {
+            max-width: 60rem;
+            margin: 0 auto 2rem;
+            padding: 0 2rem;
+            color: var(--muted);
+            font-size: 0.85rem;
+        }
+    </style>
+</head>
+<body>
+<header>
+    <h1>CSRF Token Mechanism — Demo</h1>
+    <p>
+        Illustrates Spring Security's CSRF protection on a single, deliberately-isolated
+        form endpoint (HMS v4, Epic 3.1). This is the <strong>only</strong> path in the
+        app where it's turned on — everywhere else is a stateless, bearer-JWT REST/GraphQL
+        API, which authenticates via an <code>Authorization</code> header a browser never
+        attaches automatically, so there's nothing for CSRF to exploit there in the first
+        place. See <code>CsrfDemoSecurityConfig</code>'s Javadoc for the full reasoning.
+    </p>
+</header>
+<main>
+
+    <div class="banner ok" th:if="${submittedNote}">
+        ✓ Form submitted successfully with a valid token. Echoed note:
+        <strong th:text="${submittedNote}">note</strong>
+    </div>
+
+    <div class="panel">
+        <h2>The token behind these forms</h2>
+        <p class="subtitle">
+            Generated by Spring Security's <code>CsrfFilter</code> for this session and
+            exposed as the <code>CsrfToken</code> request attribute — read directly by
+            <code>CsrfDemoController</code>, not stored or generated by this app itself.
+        </p>
+        <div class="token-box" th:if="${csrfToken}">
+            <div>parameter name: <strong th:text="${csrfToken.parameterName}">_csrf</strong></div>
+            <div>header name: <strong th:text="${csrfToken.headerName}">X-CSRF-TOKEN</strong></div>
+            <div>token: <span th:text="${csrfToken.token}">token-value</span></div>
+        </div>
+    </div>
+
+    <div class="panel">
+        <h2>Try both forms</h2>
+        <p class="subtitle">
+            Both POST to this exact same <code>/docs/csrf-demo</code> endpoint. Only the
+            difference between them is the hidden token field.
+        </p>
+        <div class="forms">
+            <div class="form-card valid">
+                <h3>Form A — carries the real token</h3>
+                <p>Hidden field set from the token box above.</p>
+                <form th:action="@{/docs/csrf-demo}" method="post">
+                    <input type="hidden" th:if="${csrfToken}"
+                           th:name="${csrfToken.parameterName}" th:value="${csrfToken.token}"/>
+                    <label for="note-valid">Note</label>
+                    <input type="text" id="note-valid" name="note" value="hello from a legitimate form" />
+                    <button type="submit">Submit with valid token</button>
+                </form>
+                <div class="expect ok">Expected: 200 — reaches the controller, banner above appears.</div>
+            </div>
+            <div class="form-card invalid">
+                <h3>Form B — token deliberately omitted</h3>
+                <p>Stands in for a forged cross-site submission with no way to know the token.</p>
+                <form th:action="@{/docs/csrf-demo}" method="post">
+                    <label for="note-invalid">Note</label>
+                    <input type="text" id="note-invalid" name="note" value="forged request" />
+                    <button type="submit">Submit without token</button>
+                </form>
+                <div class="expect bad">Expected: 403 Forbidden — CsrfFilter rejects it before the
+                    controller ever runs.</div>
+            </div>
+        </div>
+    </div>
+
+</main>
+<footer>
+    <p>
+        Every other endpoint in this app disables CSRF entirely — see
+        <code>SecurityConfig</code>'s <code>.csrf(csrf -&gt; csrf.disable())</code> and its
+        own Javadoc for why that's correct for a bearer-JWT API, not an oversight.
+    </p>
+</footer>
+</body>
+</html>
