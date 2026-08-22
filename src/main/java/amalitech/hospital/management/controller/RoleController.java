@@ -22,6 +22,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PagedModel;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -76,6 +77,11 @@ public class RoleController {
     @ApiResponse(responseCode = "201", description = "Role created")
     @ApiResponse(responseCode = "404", description = "A given permission id does not exist")
     @ApiResponse(responseCode = "409", description = "Role name already exists")
+    // @PreAuthorize demonstrated per HMS v4's Epic 4.2, on top of the existing
+    // @RequirePermission below — both check the identical permission (roles:create),
+    // never a role name; see PermissionExpressions' own Javadoc for why this project is
+    // permission-based access control, not role-based, @PreAuthorize included.
+    @PreAuthorize("@permissionCheck.has('roles', 'create')")
     @RequirePermission(resource = Resource.ROLES, action = PermissionAction.CREATE)
     public ResponseEntity<ApiResult<RoleResponse>> createRole(@Valid @RequestBody RoleRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
@@ -91,6 +97,7 @@ public class RoleController {
     @ApiResponse(responseCode = "404", description = "Role not found")
     @ApiResponse(responseCode = "409",
             description = "Role name already exists, or the role is still assigned to one or more users")
+    @PreAuthorize("@permissionCheck.has('roles', 'update')")
     @RequirePermission(resource = Resource.ROLES, action = PermissionAction.UPDATE)
     public ResponseEntity<ApiResult<RoleResponse>> updateRole(
             @Parameter(description = "Role UUID") @PathVariable String roleId,
@@ -106,6 +113,7 @@ public class RoleController {
     @ApiResponse(responseCode = "204", description = "Role deleted")
     @ApiResponse(responseCode = "404", description = "Role not found")
     @ApiResponse(responseCode = "409", description = "Role is still assigned to one or more users")
+    @PreAuthorize("@permissionCheck.has('roles', 'delete')")
     @RequirePermission(resource = Resource.ROLES, action = PermissionAction.DELETE)
     public ResponseEntity<Void> deleteRole(
             @Parameter(description = "Role UUID") @PathVariable String roleId) {
@@ -162,6 +170,7 @@ public class RoleController {
     @ApiResponse(responseCode = "204", description = "Permission granted")
     @ApiResponse(responseCode = "404", description = "Role or permission not found")
     @ApiResponse(responseCode = "409", description = "Role already has this permission")
+    @PreAuthorize("@permissionCheck.has('roles', 'update')")
     @RequirePermission(resource = Resource.ROLES, action = PermissionAction.UPDATE)
     public ResponseEntity<Void> grantPermission(
             @Parameter(description = "Role UUID") @PathVariable String roleId,
@@ -174,6 +183,7 @@ public class RoleController {
     @Operation(summary = "Revoke a permission from a role")
     @ApiResponse(responseCode = "204", description = "Permission revoked")
     @ApiResponse(responseCode = "404", description = "Role does not have this permission")
+    @PreAuthorize("@permissionCheck.has('roles', 'update')")
     @RequirePermission(resource = Resource.ROLES, action = PermissionAction.UPDATE)
     public ResponseEntity<Void> revokePermission(
             @Parameter(description = "Role UUID") @PathVariable String roleId,

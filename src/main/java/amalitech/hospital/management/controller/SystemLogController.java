@@ -17,6 +17,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PagedModel;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import io.micrometer.core.annotation.Timed;
 
@@ -48,6 +49,14 @@ public class SystemLogController {
     @Parameter(name = "sort", in = ParameterIn.QUERY,
             description = "Sort by property,direction. Possible properties: logId, logLevel, source, createdAt.",
             array = @ArraySchema(schema = @Schema(type = "string")), example = "createdAt,desc")
+    // @PreAuthorize demonstrated per HMS v4's Epic 4.2, on top of the existing
+    // @RequirePermission below — both check the identical permission
+    // (system-logs:read), never a role name; see PermissionExpressions' own Javadoc.
+    // The operational/security log trail (including failed-login security events, see
+    // AuthService.login's own logging) is itself sensitive, which is why it's kept off
+    // every seeded role's default grant set except Admin's own (see DataSeeder) —
+    // enforced by permission, not a hardcoded role check.
+    @PreAuthorize("@permissionCheck.has('system-logs', 'read')")
     @RequirePermission(resource = Resource.SYSTEM_LOGS, action = PermissionAction.READ)
     public ResponseEntity<ApiResult<PagedModel<SystemLogResponse>>> getSystemLogs(
             Pageable pageable,
@@ -63,6 +72,7 @@ public class SystemLogController {
     @Operation(summary = "Get a system log by id")
     @ApiResponse(responseCode = "200", description = "System log found")
     @ApiResponse(responseCode = "404", description = "System log not found")
+    @PreAuthorize("@permissionCheck.has('system-logs', 'read')")
     @RequirePermission(resource = Resource.SYSTEM_LOGS, action = PermissionAction.READ)
     public ResponseEntity<ApiResult<SystemLogResponse>> getSystemLog(
             @Parameter(description = "System log UUID") @PathVariable String logId) {
