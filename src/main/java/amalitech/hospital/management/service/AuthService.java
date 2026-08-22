@@ -1,6 +1,7 @@
 package amalitech.hospital.management.service;
 
 import amalitech.hospital.management.annotation.FindUserData;
+import amalitech.hospital.management.aop.SystemLogWriter;
 import amalitech.hospital.management.config.security.JwtService;
 import amalitech.hospital.management.dto.auth.ChangePasswordRequest;
 import amalitech.hospital.management.dto.auth.ForgotPasswordRequest;
@@ -59,6 +60,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final MailService mailService;
+    private final SystemLogWriter systemLogWriter;
     private final StringRedisTemplate redisTemplate;
 
     /** Self-injected proxy reference, used only to call this class's own
@@ -73,25 +75,141 @@ public class AuthService {
     @Value("${app.frontend-base-url}")
     private final String frontendBaseUrl;
 
+    /**
+     * Wraps the whole attempt in a security-event log (HMS v4, Epic 5.2) — success or
+     * failure, always naming the attempted identifier and source IP, never the password.
+     * {@code LoggingAspect}'s own generic failure log for this same method fires too
+     * (it wraps every service method); this one exists because that generic log is
+     * deliberately argument-blind (see its own Javadoc) and so can never say
+     * <em>which</em> account a failed attempt targeted — exactly the detail brute-force
+     * detection needs.
+     */
     @Transactional
     public LoginResponse login(LoginRequest request, HttpServletRequest httpRequest) {
-        // Accepts either a username or an email in the same field — tries username
-        // first (the common case) and only looks up by email if that misses, rather
-        // than requiring the caller to say which kind of identifier they're sending.
-        User user = userRepository.findByUsername(request.getUsername())
-                .or(() -> userRepository.findByEmail(request.getUsername()))
-                .orElseThrow(() -> new UnauthorizedException(INVALID_CREDENTIALS));
+        try {
+            // Accepts either a username or an email in the same field — tries username
+            // first (the common case) and only looks up by email if that misses, rather
+            // than requiring the caller to say which kind of identifier they're sending.
+            User user = userRepository.findByUsername(request.getUsername())
+                    .or(() -> userRepository.findByEmail(request.getUsername()))
+                    .orElseThrow(() -> new UnauthorizedException(INVALID_CREDENTIALS));
 
-        if (user.getDeletedAt() != null
-                || !passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
-            throw new UnauthorizedException(INVALID_CREDENTIALS);
+            if (user.getDeletedAt() != null
+                    || !passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
+                throw new UnauthorizedException(INVALID_CREDENTIALS);
+            }
+            LoginResponse response = completeLogin(user, httpRequest);
+            logSecurityEvent("INFO", request.getUsername(), httpRequest, "Successful login");
+            return response;
+        } catch (UnauthorizedException ex) {
+            logSecurityEvent("WARNING", request.getUsername(), httpRequest, "Failed login: " + ex.getMessage());
+            throw ex;
         }
+    }
+
+    /**
+     * Google OAuth2 login (HMS v4, Epic 4.1) — called by
+     * {@code OAuth2LoginSuccessHandler} once Google's own handshake has already proven
+     * the caller owns {@code email}. Finds the matching account by email, or creates one
+     * on the fly if this is the first time this Google identity has ever logged in —
+     * same no-default-role rule as {@link amalitech.hospital.management.service.UserService#createUser}'s
+     * self-registration (an administrator still has to grant a role via
+     * {@code POST /api/v1/users/{userId}/roles/{roleId}} before the account can do
+     * anything), so a brand-new Google login throws the exact same "no assigned role"
+     * {@link UnauthorizedException} a brand-new password self-registration would.
+     *
+     * <p>{@code passwordHash} gets a random, never-communicated BCrypt hash — this
+     * account was never given a password to begin with, so there's nothing valid for
+     * {@code POST /auth/login} to ever match against; the account can only authenticate
+     * via Google unless it later runs {@code POST /auth/forgot-password} to set a real
+     * one (the same reset flow any account can use, not something OAuth-specific).
+     */
+    @Transactional
+    public LoginResponse loginWithGoogle(String email, String displayName, HttpServletRequest httpRequest) {
+        try {
+            User user = userRepository.findByEmail(email)
+                    .orElseGet(() -> createGoogleProvisionedUser(email, displayName));
+
+            if (user.getDeletedAt() != null) {
+                throw new UnauthorizedException("This account has been deactivated");
+            }
+            // Google's own OAuth2 handshake already re-proves ownership of this exact
+            // email address — that's a strictly stronger signal than the click-the-link
+            // flow self-registration otherwise requires, so a login via Google satisfies
+            // (and, for a pre-existing password account that never finished the email
+            // link, retroactively satisfies) the same verification gate the password
+            // path checks.
+            if (user.getEmailVerifiedAt() == null) {
+                user.setEmailVerifiedAt(LocalDateTime.now(ZoneId.systemDefault()));
+                userRepository.save(user);
+            }
+            LoginResponse response = completeLogin(user, httpRequest);
+            logSecurityEvent("INFO", email, httpRequest, "Successful Google OAuth2 login");
+            return response;
+        } catch (UnauthorizedException ex) {
+            logSecurityEvent("WARNING", email, httpRequest, "Failed Google OAuth2 login: " + ex.getMessage());
+            throw ex;
+        }
+    }
+
+    /** {@code identifier} is the attempted username/email — never the password — see
+     *  {@code SystemLogWriter}'s own Javadoc for why this exists alongside
+     *  {@code LoggingAspect}'s generic failure log. */
+    private void logSecurityEvent(String logLevel, String identifier, HttpServletRequest httpRequest, String outcome) {
+        systemLogWriter.record(logLevel, "AuthService.login.security-event",
+                outcome + " for '" + identifier + "' from " + httpRequest.getRemoteAddr());
+    }
+
+    private User createGoogleProvisionedUser(String email, String displayName) {
+        LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
+        User user = new User();
+        user.setUsername(uniqueUsernameFrom(email, displayName));
+        user.setEmail(email);
+        // Random, never returned/logged/usable-as-a-real-password — see this method's
+        // caller's own Javadoc for why an OAuth-only account still needs some value here
+        // (the column is NOT NULL) without ever being a real credential.
+        byte[] randomBytes = new byte[24];
+        secureRandom.nextBytes(randomBytes);
+        user.setPasswordHash(passwordEncoder.encode(Base64.getEncoder().encodeToString(randomBytes)));
+        user.setIsActive(true);
+        user.setEmailVerifiedAt(now);
+        user.setCreatedAt(now);
+        user.setUpdatedAt(now);
+        return userRepository.save(user);
+    }
+
+    /** {@code username} is required and unique, but Google only gives us an email and a
+     *  display name — derives a candidate from the email's local part (falling back to
+     *  the display name if that's somehow blank) and appends digits until it's free,
+     *  the same collision-handling shape {@code DataSeeder}'s own bulk user creation uses. */
+    private String uniqueUsernameFrom(String email, String displayName) {
+        String localPart = email.contains("@") ? email.substring(0, email.indexOf('@')) : email;
+        String base = (localPart.isBlank() ? displayName : localPart).replaceAll("[^a-zA-Z0-9._-]", "");
+        if (base.isBlank()) {
+            base = "user";
+        }
+        String candidate = base;
+        int suffix = 1;
+        while (userRepository.existsByUsername(candidate)) {
+            candidate = base + (++suffix);
+        }
+        return candidate;
+    }
+
+    /**
+     * Shared by both {@link #login} and {@link #loginWithGoogle} once the caller's
+     * identity is already established (password verified, or Google's own handshake
+     * already vouched for the email) — active/verified/role checks, session creation,
+     * and JWT issuance are identical either way.
+     */
+    private LoginResponse completeLogin(User user, HttpServletRequest httpRequest) {
         if (!Boolean.TRUE.equals(user.getIsActive())) {
             throw new UnauthorizedException("This account has been deactivated");
         }
         // Email is mandatory (see UserRequest), so this gate is unconditional — every
-        // account must either click its verification link (self-registration) or have
-        // been pre-verified at creation (UserService.createUserByAdmin, DataSeeder).
+        // account must either click its verification link (self-registration), have been
+        // pre-verified at creation (UserService.createUserByAdmin, DataSeeder), or have
+        // just logged in via Google (loginWithGoogle sets this immediately above).
         if (user.getEmailVerifiedAt() == null) {
             throw new UnauthorizedException("Please verify your email before logging in");
         }

@@ -13,14 +13,28 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 
 /**
- * Persists one {@link SystemLog} row — used only by {@link LoggingAspect}'s failure
- * branch. Deliberately its own small component in the {@code aop} package rather than a
+ * Persists one {@link SystemLog} row. Two callers today:
+ * <ul>
+ *   <li>{@link LoggingAspect}'s failure branch — every service-layer exception, generic
+ *       by necessity (it never logs argument or return values — see that class's own
+ *       Javadoc on why — so the message here is just the exception's own text).</li>
+ *   <li>{@code AuthService.login}/{@code loginWithGoogle} (HMS v4, Epic 5.2) — a
+ *       dedicated security-event log for authentication attempts specifically, which
+ *       deliberately <em>does</em> include the attempted username/email (never the
+ *       password) and source IP, since "which account was targeted, from where" is
+ *       exactly what brute-force detection needs and {@code LoggingAspect}'s own
+ *       generic, argument-blind failure log can't provide.</li>
+ * </ul>
+ * Deliberately its own small component in the {@code aop} package rather than a
  * {@code service}-package class: {@link LoggingAspect}'s pointcut wraps every method in
  * {@code service}, so a {@code service}-package writer would itself get logged (and
- * re-entrantly call back into this same failure path) every time it ran.
+ * re-entrantly call back into this same failure path) every time {@link LoggingAspect}
+ * used it. {@code AuthService} calling this class directly has no such issue — this
+ * class isn't itself a service-layer method {@code LoggingAspect}'s pointcut matches.
  *
  * {@code REQUIRES_NEW} is the whole point of this being a separate component at all —
- * the failing call {@code LoggingAspect} is reporting on is very often itself
+ * the failing call {@code LoggingAspect} is reporting on (or, for the auth case, the
+ * transaction {@code AuthService.login} is about to fail out of) is very often itself
  * {@code @Transactional} and about to roll back; without a genuinely new transaction,
  * this row would be written to a transaction that's already marked for rollback and
  * silently vanish along with it, defeating the purpose of logging the failure at all.
@@ -33,8 +47,10 @@ public class SystemLogWriter {
 
     private final SystemLogRepository systemLogRepository;
 
-    // Fires only when a service-layer call fails, called by LoggingAspect.persistFailure
-    // (its failure branch) in a fresh REQUIRES_NEW transaction.
+    // Fires on a service-layer failure (LoggingAspect.persistFailure) or an explicit
+    // authentication security event (AuthService.login/loginWithGoogle) — always in a
+    // fresh REQUIRES_NEW transaction, independent of whatever the caller's own
+    // transaction does next.
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void record(String logLevel, String source, String message) {
         log.debug("SystemLogWriter.record invoked — called by LoggingAspect.persistFailure");

@@ -75,6 +75,19 @@ spring:
       # checks. Altair (or any other GraphQL client) needs none of this bundling; it
       # just needs this reachable, introspectable /graphql endpoint.
       enabled: true
+  # Google OAuth2 login (HMS v4, Epic 4.1) — client-id/secret come from the downloaded
+  # docs/client_secret_*.json, copied into .env (gitignored). This is Spring Security's
+  # own `spring.security.*` namespace — a different YAML path from this project's own
+  # top-level `security:` block below (JWT/bcrypt/encryption-key), which predates this
+  # and isn't renamed to avoid touching every ${security....} reference elsewhere.
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET}
+            scope: openid, profile, email
 
 # Redis (still useful for caching sessions, tokens, etc.)
 
@@ -104,6 +117,8 @@ app:
   # safe for local dev; override via .env for staging/prod.
   frontend-base-url: ${APP_FRONTEND_BASE_URL:http://localhost:3000}
   support-email: ${APP_SUPPORT_EMAIL:support@hms-hospital.com}
+  # CORS (HMS v4, Epic 1.2) — see SecurityConfig.corsConfigurationSource.
+  cors-allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:http://localhost:3000}
   # How long a self-registration's email-verification link stays valid — see
   # UserService.createUser (generates it) / AuthService.verifyEmail (consumes it).
   email-verification-ttl-hours: ${APP_EMAIL_VERIFICATION_TTL_HOURS:24}

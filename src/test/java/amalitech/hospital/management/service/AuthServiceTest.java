@@ -1,5 +1,6 @@
 package amalitech.hospital.management.service;
 
+import amalitech.hospital.management.aop.SystemLogWriter;
 import amalitech.hospital.management.config.security.JwtService;
 import amalitech.hospital.management.dto.auth.ChangePasswordRequest;
 import amalitech.hospital.management.dto.auth.ForgotPasswordRequest;
@@ -20,6 +21,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -51,6 +53,7 @@ class AuthServiceTest {
     @Mock private PasswordEncoder passwordEncoder;
     @Mock private JwtService jwtService;
     @Mock private MailService mailService;
+    @Mock private SystemLogWriter systemLogWriter;
     @Mock private StringRedisTemplate redisTemplate;
     @Mock private ValueOperations<String, String> valueOperations;
     @Mock private HttpServletRequest httpServletRequest;
@@ -67,7 +70,8 @@ class AuthServiceTest {
     @BeforeEach
     void setUp() {
         authService = new AuthService(userRepository, userRoleRepository, userSessionRepository,
-                passwordEncoder, jwtService, mailService, redisTemplate, self, "http://localhost:3000");
+                passwordEncoder, jwtService, mailService, systemLogWriter, redisTemplate, self,
+                "http://localhost:3000");
 
         existingUser = new User();
         existingUser.setUserId("user-1");
@@ -230,6 +234,130 @@ class AuthServiceTest {
 
         assertThatThrownBy(() -> authService.login(request, httpServletRequest))
                 .isInstanceOf(UnauthorizedException.class);
+    }
+
+    // ── loginWithGoogle ──────────────────────────────────────────────────────
+
+    @Test
+    void loginWithGoogle_createsANewUser_whenNoAccountMatchesTheEmail() {
+        when(userRepository.findByEmail("newperson@example.com")).thenReturn(Optional.empty());
+        when(userRepository.existsByUsername("newperson")).thenReturn(false);
+        when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(passwordEncoder.encode(anyString())).thenReturn("random-bcrypt-hash");
+
+        // Brand-new account has no role yet — same no-default-role outcome a brand-new
+        // password self-registration gets, not a real authentication failure.
+        assertThatThrownBy(() -> authService.loginWithGoogle(
+                "newperson@example.com", "New Person", httpServletRequest))
+                .isInstanceOf(UnauthorizedException.class)
+                .hasMessageContaining("no assigned role");
+
+        ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
+        verify(userRepository).save(captor.capture());
+        User created = captor.getValue();
+        assertThat(created.getEmail()).isEqualTo("newperson@example.com");
+        assertThat(created.getUsername()).isEqualTo("newperson");
+        assertThat(created.getEmailVerifiedAt()).isNotNull(); // Google already proved ownership
+        assertThat(created.getPasswordHash()).isNotBlank(); // random, but never null (NOT NULL column)
+    }
+
+    @Test
+    void loginWithGoogle_appendsDigits_whenTheDerivedUsernameIsAlreadyTaken() {
+        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.empty());
+        when(userRepository.existsByUsername("alice")).thenReturn(true);
+        when(userRepository.existsByUsername("alice2")).thenReturn(false);
+        when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        assertThatThrownBy(() -> authService.loginWithGoogle("alice@example.com", "Alice", httpServletRequest))
+                .isInstanceOf(UnauthorizedException.class);
+
+        ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
+        verify(userRepository).save(captor.capture());
+        assertThat(captor.getValue().getUsername()).isEqualTo("alice2");
+    }
+
+    @Test
+    void loginWithGoogle_logsInAnExistingAccount_withoutCreatingAnother() {
+        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(existingUser));
+        when(userRoleRepository.findByIdUserId("user-1")).thenReturn(List.of(assignment(adminRole)));
+        when(jwtService.getExpiryHours()).thenReturn(8L);
+        when(userSessionRepository.save(any(UserSession.class))).thenAnswer(inv -> {
+            UserSession session = inv.getArgument(0);
+            session.setSessionId("session-1");
+            return session;
+        });
+        when(jwtService.generateToken("user-1", "alice", "Admin", "session-1")).thenReturn("signed-token");
+
+        LoginResponse response = authService.loginWithGoogle("alice@example.com", "Alice", httpServletRequest);
+
+        assertThat(response.getToken()).isEqualTo("signed-token");
+        assertThat(response.getUserId()).isEqualTo("user-1");
+        verify(userRepository, never()).save(any(User.class)); // existing account, nothing new created
+    }
+
+    @Test
+    void loginWithGoogle_retroactivelyVerifiesEmail_forAnExistingUnverifiedAccount() {
+        existingUser.setEmailVerifiedAt(null);
+        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(existingUser));
+        when(userRoleRepository.findByIdUserId("user-1")).thenReturn(List.of(assignment(adminRole)));
+        when(jwtService.getExpiryHours()).thenReturn(8L);
+        when(userSessionRepository.save(any(UserSession.class))).thenAnswer(inv -> {
+            UserSession session = inv.getArgument(0);
+            session.setSessionId("session-1");
+            return session;
+        });
+        when(jwtService.generateToken(anyString(), anyString(), anyString(), anyString())).thenReturn("token");
+
+        authService.loginWithGoogle("alice@example.com", "Alice", httpServletRequest);
+
+        assertThat(existingUser.getEmailVerifiedAt()).isNotNull();
+        verify(userRepository).save(existingUser);
+    }
+
+    @Test
+    void loginWithGoogle_throwsUnauthorized_forADeactivatedAccount() {
+        existingUser.setIsActive(false);
+        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(existingUser));
+
+        assertThatThrownBy(() -> authService.loginWithGoogle("alice@example.com", "Alice", httpServletRequest))
+                .isInstanceOf(UnauthorizedException.class)
+                .hasMessageContaining("deactivated");
+    }
+
+    // ── security-event logging (HMS v4, Epic 5.2) ───────────────────────────
+
+    @Test
+    void login_logsASecurityEventOnFailure_namingTheAttemptedIdentifierButNeverThePassword() {
+        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(existingUser));
+        when(passwordEncoder.matches("wrong-password", "hashed-pw")).thenReturn(false);
+        when(httpServletRequest.getRemoteAddr()).thenReturn("10.0.0.5");
+
+        assertThatThrownBy(() -> authService.login(loginRequest("alice", "wrong-password"), httpServletRequest))
+                .isInstanceOf(UnauthorizedException.class);
+
+        ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
+        verify(systemLogWriter).record(eq("WARNING"), eq("AuthService.login.security-event"), messageCaptor.capture());
+        assertThat(messageCaptor.getValue()).contains("alice").contains("10.0.0.5")
+                .doesNotContain("wrong-password");
+    }
+
+    @Test
+    void login_logsASecurityEventOnSuccess() {
+        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(existingUser));
+        when(passwordEncoder.matches("pw", "hashed-pw")).thenReturn(true);
+        when(userRoleRepository.findByIdUserId("user-1")).thenReturn(List.of(assignment(adminRole)));
+        when(jwtService.getExpiryHours()).thenReturn(8L);
+        when(httpServletRequest.getRemoteAddr()).thenReturn("10.0.0.5");
+        when(userSessionRepository.save(any(UserSession.class))).thenAnswer(inv -> {
+            UserSession session = inv.getArgument(0);
+            session.setSessionId("session-1");
+            return session;
+        });
+        when(jwtService.generateToken(anyString(), anyString(), anyString(), anyString())).thenReturn("token");
+
+        authService.login(loginRequest("alice", "pw"), httpServletRequest);
+
+        verify(systemLogWriter).record(eq("INFO"), eq("AuthService.login.security-event"), anyString());
     }
 
     // ── logout ───────────────────────────────────────────────────────────────
