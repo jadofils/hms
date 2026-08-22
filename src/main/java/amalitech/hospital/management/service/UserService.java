@@ -6,6 +6,8 @@ import amalitech.hospital.management.dto.user.UserRequest;
 import amalitech.hospital.management.dto.user.UserResponse;
 import amalitech.hospital.management.dto.doctor.DoctorResponse;
 import amalitech.hospital.management.dto.user.role.RoleResponse;
+import amalitech.hospital.management.event.AdminCreatedUserEvent;
+import amalitech.hospital.management.event.UserRegisteredEvent;
 import amalitech.hospital.management.exception.runtime.ConflictException;
 import amalitech.hospital.management.exception.runtime.NotFoundException;
 import amalitech.hospital.management.model.user.User;
@@ -21,6 +23,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.CachePut;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -68,7 +71,11 @@ public class UserService {
     private final RoleService roleService;
     private final DoctorService doctorService;
     private final PasswordEncoder passwordEncoder;
-    private final MailService mailService;
+    // Publishes UserRegisteredEvent/AdminCreatedUserEvent instead of calling MailService
+    // directly (HMS v5) — MailEventListener sends the actual email, deferred to after
+    // this method's own transaction commits and off the request thread. See
+    // MailEventListener's own Javadoc for why.
+    private final ApplicationEventPublisher eventPublisher;
     private final StringRedisTemplate redisTemplate;
     private final SecureRandom secureRandom = new SecureRandom();
 
@@ -228,8 +235,10 @@ public class UserService {
     }
 
     /** Generates a single-use, Redis-backed verification token (mirrors
-     *  {@code AuthService.forgotPassword}'s own reset-token pattern exactly) and emails
-     *  the confirmation link. Consumed by {@code AuthService.verifyEmail}. */
+     *  {@code AuthService.forgotPassword}'s own reset-token pattern exactly) and, once
+     *  it's written, publishes {@link UserRegisteredEvent} rather than emailing directly
+     *  (HMS v5) — {@code MailEventListener} sends the real email after this method's
+     *  transaction commits. Consumed by {@code AuthService.verifyEmail}. */
     private void sendVerificationEmail(User user) {
         byte[] bytes = new byte[32];
         secureRandom.nextBytes(bytes);
@@ -237,8 +246,8 @@ public class UserService {
         redisTemplate.opsForValue().set(EMAIL_VERIFY_TOKEN_PREFIX + token, user.getUserId(),
                 Duration.ofHours(emailVerificationTtlHours));
         String verifyUrl = frontendBaseUrl + "/verify-email?token=" + token;
-        mailService.sendEmailVerificationEmail(user.getEmail(), user.getUsername(), verifyUrl,
-                (int) emailVerificationTtlHours);
+        eventPublisher.publishEvent(new UserRegisteredEvent(user.getEmail(), user.getUsername(), verifyUrl,
+                (int) emailVerificationTtlHours));
     }
 
     /**
@@ -273,8 +282,10 @@ public class UserService {
         UserResponse response = toResponse(userRepository.save(user));
 
         // Never returned in the API response, never logged — the only place this
-        // plaintext value ever appears is this one email.
-        mailService.sendGeneratedPasswordEmail(user.getEmail(), user.getUsername(), generatedPassword);
+        // plaintext value ever appears is the AdminCreatedUserEvent below, alive only
+        // as long as it takes MailEventListener to email it (HMS v5 — see that class's
+        // own Javadoc for why this publishes rather than calling MailService directly).
+        eventPublisher.publishEvent(new AdminCreatedUserEvent(user.getEmail(), user.getUsername(), generatedPassword));
 
         return response;
     }

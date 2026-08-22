@@ -4,6 +4,8 @@ import amalitech.hospital.management.dto.user.AdminCreateUserRequest;
 import amalitech.hospital.management.dto.user.UserRequest;
 import amalitech.hospital.management.dto.user.UserResponse;
 import amalitech.hospital.management.dto.user.role.RoleResponse;
+import amalitech.hospital.management.event.AdminCreatedUserEvent;
+import amalitech.hospital.management.event.UserRegisteredEvent;
 import amalitech.hospital.management.exception.runtime.ConflictException;
 import amalitech.hospital.management.exception.runtime.NotFoundException;
 import amalitech.hospital.management.model.user.User;
@@ -20,6 +22,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -36,7 +39,6 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -53,7 +55,7 @@ class UserServiceTest {
     @Mock private RoleService roleService;
     @Mock private DoctorService doctorService;
     @Mock private PasswordEncoder passwordEncoder;
-    @Mock private MailService mailService;
+    @Mock private ApplicationEventPublisher eventPublisher;
     @Mock private StringRedisTemplate redisTemplate;
     @Mock private ValueOperations<String, String> valueOperations;
     // Stands in for the self-injected AOP proxy reference — findUsersPage is
@@ -68,7 +70,7 @@ class UserServiceTest {
     @BeforeEach
     void setUp() {
         userService = new UserService(userRepository, userRoleRepository, roleRepository, roleService,
-                doctorService, passwordEncoder, mailService, redisTemplate, "http://localhost:3000", 24L, self);
+                doctorService, passwordEncoder, eventPublisher, redisTemplate, "http://localhost:3000", 24L, self);
 
         existingUser = new User();
         existingUser.setUserId("user-1");
@@ -354,10 +356,13 @@ class UserServiceTest {
                 org.mockito.ArgumentMatchers.startsWith("email-verify:"),
                 eq("user-generated-id"),
                 eq(Duration.ofHours(24)));
-        verify(mailService).sendEmailVerificationEmail(
-                eq("bob@example.com"), eq("bob"),
-                org.mockito.ArgumentMatchers.startsWith("http://localhost:3000/verify-email?token="),
-                eq(24));
+        ArgumentCaptor<UserRegisteredEvent> eventCaptor = ArgumentCaptor.forClass(UserRegisteredEvent.class);
+        verify(eventPublisher).publishEvent(eventCaptor.capture());
+        UserRegisteredEvent event = eventCaptor.getValue();
+        assertThat(event.getEmail()).isEqualTo("bob@example.com");
+        assertThat(event.getRecipientName()).isEqualTo("bob");
+        assertThat(event.getVerifyUrl()).startsWith("http://localhost:3000/verify-email?token=");
+        assertThat(event.getExpiryHours()).isEqualTo(24);
     }
 
     // ── createUserByAdmin ────────────────────────────────────────────────────
@@ -407,7 +412,12 @@ class UserServiceTest {
         assertThat(userCaptor.getValue().getPasswordHash()).isEqualTo("hashed-generated-pw");
         assertThat(response.getUsername()).isEqualTo("bob");
 
-        verify(mailService).sendGeneratedPasswordEmail(eq("bob@example.com"), eq("bob"), eq(generatedPassword));
+        ArgumentCaptor<AdminCreatedUserEvent> eventCaptor = ArgumentCaptor.forClass(AdminCreatedUserEvent.class);
+        verify(eventPublisher).publishEvent(eventCaptor.capture());
+        AdminCreatedUserEvent event = eventCaptor.getValue();
+        assertThat(event.getEmail()).isEqualTo("bob@example.com");
+        assertThat(event.getRecipientName()).isEqualTo("bob");
+        assertThat(event.getGeneratedPassword()).isEqualTo(generatedPassword);
     }
 
     @Test
