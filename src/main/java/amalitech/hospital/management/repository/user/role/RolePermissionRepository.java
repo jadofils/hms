@@ -2,6 +2,7 @@ package amalitech.hospital.management.repository.user.role;
 
 import amalitech.hospital.management.model.user.role.RolePermission;
 import amalitech.hospital.management.model.user.role.RolePermissionId;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -10,7 +11,13 @@ import java.util.List;
 import java.util.Optional;
 
 public interface RolePermissionRepository extends JpaRepository<RolePermission, RolePermissionId> {
+
+    // @EntityGraph (HMS v5) — RoleService.getRolePermissions maps rp.getPermission()
+    // per row (@ManyToOne(LAZY)); only surfaced once spring.jpa.open-in-view was
+    // disabled (previously masked by OSIV keeping a session open for the whole request).
+    @EntityGraph(attributePaths = "permission")
     List<RolePermission> findByIdRoleIdAndDeletedAtIsNull(String roleId);
+
     Optional<RolePermission> findByIdRoleIdAndIdPermissionId(String roleId, String permissionId);
 
     /**
