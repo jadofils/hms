@@ -9,6 +9,15 @@ spring:
     hibernate:
       ddl-auto: validate
     show-sql: false
+  # HMS v5 — a 20-connection pool (the dev/prod default) is needless resource
+  # contention for CI/local test runs, which don't see anywhere near dev/prod's
+  # concurrent load. Independent of the base application.yaml's own pool-sizing
+  # reasoning — this override exists purely so test runs aren't paying for capacity
+  # they never use.
+  datasource:
+    hikari:
+      maximum-pool-size: 5
+      minimum-idle: 5
 
 logging:
   level:

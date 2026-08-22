@@ -25,13 +25,29 @@ spring:
     hikari:
       pool-name: HMS-Pool
       maximum-pool-size: 20
-      minimum-idle: 1
+      # HMS v5 — bumped from 1: HikariCP's own docs recommend a fixed-size pool
+      # (minimum-idle == maximum-pool-size) for predictable latency under bursty load,
+      # and this pass adds two new bursty concurrent-connection-demand sources: the
+      # mailTaskExecutor/patientProfileExecutor thread pools (AsyncConfig) and
+      # PatientService.getPatient's parallel CompletableFuture fan-out. Not fully fixed
+      # (== 20) to avoid over-provisioning idle connections for this project's actual
+      # course-project load — 10 is a deliberate middle ground, not the textbook ideal.
+      minimum-idle: 10
       connection-timeout: 20000    # ms — how long to wait for a connection before throwing
       idle-timeout: 30000          # ms — how long an idle connection sits before eviction
       max-lifetime: 1800000        # ms — 30 min, max lifetime of any connection
 
   jpa:
     # hibernate.ddl-auto and show-sql are set per-profile (application-dev/test/prod.yaml)
+    # HMS v5 — open-in-view explicitly disabled below (was Spring Boot's unset default,
+    # `true`). OSIV keeps a Hibernate session bound for the whole request, which is
+    # exactly what let lazy-load N+1s fire silently during response serialization
+    # instead of failing loudly at the point they actually happen — see every
+    # `@EntityGraph` added this pass (docs/v5-report.md) for the specific sites this
+    # was masking. Only safe to flip *after* those fixes land: every finder method a
+    # controller-layer response walks lazy associations on now carries its own
+    # `@EntityGraph`, so nothing here still needs OSIV's safety net.
+    open-in-view: false
     properties:
       hibernate:
         format_sql: true
