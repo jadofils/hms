@@ -8,6 +8,8 @@ import amalitech.hospital.management.dto.auth.ForgotPasswordRequest;
 import amalitech.hospital.management.dto.auth.LoginRequest;
 import amalitech.hospital.management.dto.auth.LoginResponse;
 import amalitech.hospital.management.dto.auth.ResetPasswordRequest;
+import amalitech.hospital.management.event.PasswordChangedEvent;
+import amalitech.hospital.management.event.PasswordResetRequestedEvent;
 import amalitech.hospital.management.exception.runtime.BadRequestException;
 import amalitech.hospital.management.exception.runtime.NotFoundException;
 import amalitech.hospital.management.exception.runtime.UnauthorizedException;
@@ -20,6 +22,7 @@ import amalitech.hospital.management.repository.user.UserSessionRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -59,7 +62,12 @@ public class AuthService {
     private final UserSessionRepository userSessionRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
-    private final MailService mailService;
+    // Publishes PasswordResetRequestedEvent/PasswordChangedEvent instead of calling
+    // MailService directly (HMS v5) — MailEventListener sends the actual email,
+    // deferred to after this method's own transaction commits (where one exists — see
+    // MailEventListener's own Javadoc on why forgotPassword, which isn't @Transactional,
+    // still works correctly) and off the request thread.
+    private final ApplicationEventPublisher eventPublisher;
     private final SystemLogWriter systemLogWriter;
     private final StringRedisTemplate redisTemplate;
 
@@ -267,8 +275,11 @@ public class AuthService {
         String token = generateResetToken();
         redisTemplate.opsForValue().set(RESET_TOKEN_PREFIX + token, user.getUserId(), RESET_TOKEN_TTL);
         String resetUrl = frontendBaseUrl + "/reset-password?token=" + token;
-        mailService.sendPasswordResetEmail(user.getEmail(), user.getUsername(), token, resetUrl,
-                (int) RESET_TOKEN_TTL.toMinutes());
+        // Publishes rather than calling MailService directly (HMS v5) — this method
+        // isn't @Transactional, which is exactly why MailEventListener's handler for
+        // this event sets fallbackExecution = true (see that class's own Javadoc).
+        eventPublisher.publishEvent(new PasswordResetRequestedEvent(user.getEmail(), user.getUsername(),
+                token, resetUrl, (int) RESET_TOKEN_TTL.toMinutes()));
     }
 
     /**
@@ -303,7 +314,9 @@ public class AuthService {
         // Notifies whoever holds the mailbox — including an attacker who reset a
         // compromised password — so a legitimate owner locked out can tell something
         // happened. Unconditional now that email is mandatory (see UserRequest).
-        mailService.sendPasswordChangedEmail(user.getEmail(), user.getUsername(), now);
+        // Publishes rather than calling MailService directly (HMS v5) — see
+        // MailEventListener's own Javadoc.
+        eventPublisher.publishEvent(new PasswordChangedEvent(user.getEmail(), user.getUsername(), now));
     }
 
     /** Consumes the single-use token {@code UserService.createUser} emailed as a link.
@@ -337,8 +350,9 @@ public class AuthService {
         user.setUpdatedAt(now);
         userRepository.save(user);
         // Unconditional now that email is mandatory (see UserRequest) — see resetPassword's
-        // identical notification above.
-        mailService.sendPasswordChangedEmail(user.getEmail(), user.getUsername(), now);
+        // identical notification above. Publishes rather than calling MailService
+        // directly (HMS v5) — see MailEventListener's own Javadoc.
+        eventPublisher.publishEvent(new PasswordChangedEvent(user.getEmail(), user.getUsername(), now));
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

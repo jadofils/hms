@@ -7,6 +7,8 @@ import amalitech.hospital.management.dto.auth.ForgotPasswordRequest;
 import amalitech.hospital.management.dto.auth.LoginRequest;
 import amalitech.hospital.management.dto.auth.LoginResponse;
 import amalitech.hospital.management.dto.auth.ResetPasswordRequest;
+import amalitech.hospital.management.event.PasswordChangedEvent;
+import amalitech.hospital.management.event.PasswordResetRequestedEvent;
 import amalitech.hospital.management.exception.runtime.BadRequestException;
 import amalitech.hospital.management.exception.runtime.NotFoundException;
 import amalitech.hospital.management.exception.runtime.UnauthorizedException;
@@ -24,6 +26,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -37,7 +40,6 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -52,7 +54,7 @@ class AuthServiceTest {
     @Mock private UserSessionRepository userSessionRepository;
     @Mock private PasswordEncoder passwordEncoder;
     @Mock private JwtService jwtService;
-    @Mock private MailService mailService;
+    @Mock private ApplicationEventPublisher eventPublisher;
     @Mock private SystemLogWriter systemLogWriter;
     @Mock private StringRedisTemplate redisTemplate;
     @Mock private ValueOperations<String, String> valueOperations;
@@ -70,7 +72,7 @@ class AuthServiceTest {
     @BeforeEach
     void setUp() {
         authService = new AuthService(userRepository, userRoleRepository, userSessionRepository,
-                passwordEncoder, jwtService, mailService, systemLogWriter, redisTemplate, self,
+                passwordEncoder, jwtService, eventPublisher, systemLogWriter, redisTemplate, self,
                 "http://localhost:3000");
 
         existingUser = new User();
@@ -406,7 +408,7 @@ class AuthServiceTest {
                 .isInstanceOf(NotFoundException.class);
 
         verify(redisTemplate, never()).opsForValue();
-        verify(mailService, never()).sendPasswordResetEmail(anyString(), anyString(), anyString(), anyString(), anyInt());
+        verify(eventPublisher, never()).publishEvent(any(PasswordResetRequestedEvent.class));
     }
 
     @Test
@@ -423,7 +425,7 @@ class AuthServiceTest {
         assertThatThrownBy(() -> authService.forgotPassword(request))
                 .isInstanceOf(NotFoundException.class);
 
-        verify(mailService, never()).sendPasswordResetEmail(anyString(), anyString(), anyString(), anyString(), anyInt());
+        verify(eventPublisher, never()).publishEvent(any(PasswordResetRequestedEvent.class));
     }
 
     @Test
@@ -440,10 +442,14 @@ class AuthServiceTest {
                 org.mockito.ArgumentMatchers.startsWith("password-reset:"),
                 eq("user-1"),
                 eq(Duration.ofMinutes(30)));
-        verify(mailService).sendPasswordResetEmail(
-                eq("alice@example.com"), eq("alice"), anyString(),
-                org.mockito.ArgumentMatchers.startsWith("http://localhost:3000/reset-password?token="),
-                eq(30));
+        ArgumentCaptor<PasswordResetRequestedEvent> eventCaptor =
+                ArgumentCaptor.forClass(PasswordResetRequestedEvent.class);
+        verify(eventPublisher).publishEvent(eventCaptor.capture());
+        PasswordResetRequestedEvent event = eventCaptor.getValue();
+        assertThat(event.getEmail()).isEqualTo("alice@example.com");
+        assertThat(event.getRecipientName()).isEqualTo("alice");
+        assertThat(event.getResetUrl()).startsWith("http://localhost:3000/reset-password?token=");
+        assertThat(event.getExpiryMinutes()).isEqualTo(30);
     }
 
     // ── resetPassword ────────────────────────────────────────────────────────
@@ -481,7 +487,10 @@ class AuthServiceTest {
         verify(jwtService).blocklist(eq("session-1"), any(LocalDateTime.class));
         assertThat(activeSession.getIsActive()).isFalse();
         verify(userSessionRepository).save(activeSession);
-        verify(mailService).sendPasswordChangedEmail(eq("alice@example.com"), eq("alice"), any(LocalDateTime.class));
+        ArgumentCaptor<PasswordChangedEvent> eventCaptor = ArgumentCaptor.forClass(PasswordChangedEvent.class);
+        verify(eventPublisher).publishEvent(eventCaptor.capture());
+        assertThat(eventCaptor.getValue().getEmail()).isEqualTo("alice@example.com");
+        assertThat(eventCaptor.getValue().getRecipientName()).isEqualTo("alice");
     }
 
     @Test
@@ -564,7 +573,10 @@ class AuthServiceTest {
         authService.changePassword("user-1", request);
 
         assertThat(existingUser.getPasswordHash()).isEqualTo("new-hash");
-        verify(mailService).sendPasswordChangedEmail(eq("alice@example.com"), eq("alice"), any(LocalDateTime.class));
+        ArgumentCaptor<PasswordChangedEvent> eventCaptor = ArgumentCaptor.forClass(PasswordChangedEvent.class);
+        verify(eventPublisher).publishEvent(eventCaptor.capture());
+        assertThat(eventCaptor.getValue().getEmail()).isEqualTo("alice@example.com");
+        assertThat(eventCaptor.getValue().getRecipientName()).isEqualTo("alice");
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────
