@@ -8,6 +8,14 @@ CLAUDE.md
 # Real secrets (DB/Redis passwords, encryption key, Gmail app password) — never commit
 .env
 
+# Google Cloud Console's downloaded OAuth2 client credentials file — contains a live
+# client_secret in plaintext. The actual client id/secret get copied into .env (same
+# secret-management convention as everything else above) and referenced via
+# spring.security.oauth2.client.registration.google.* in application.yaml; this raw
+# download is never the thing the app actually reads at runtime, so ignoring it costs
+# nothing. Matches Google's own default download filename pattern.
+docs/client_secret_*.json
+
 # Claude Code local session/tooling state (per-machine MCP toggles, settings, scheduled-
 # task locks, etc.) — none of it is meant to be shared or pushed.
 .claude/
