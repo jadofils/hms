@@ -4,6 +4,7 @@ import amalitech.hospital.management.annotation.RequirePermission;
 import amalitech.hospital.management.dto.common.ApiResult;
 import amalitech.hospital.management.dto.notification.NotificationRequest;
 import amalitech.hospital.management.dto.notification.NotificationResponse;
+import amalitech.hospital.management.dto.notification.PatchNotificationRequest;
 import amalitech.hospital.management.enums.PermissionAction;
 import amalitech.hospital.management.enums.Resource;
 import amalitech.hospital.management.service.NotificationService;
@@ -53,7 +54,8 @@ public class NotificationController {
     @RequirePermission(resource = Resource.NOTIFICATIONS, action = PermissionAction.READ)
     public ResponseEntity<ApiResult<PagedModel<NotificationResponse>>> getNotifications(
             Pageable pageable,
-            @Parameter(description = "Filter to only unread (true) or only already-read (false) notifications")
+            @Parameter(description = "Filter to only unread (true) or only already-read (false) notifications",
+                    example = "true")
             @RequestParam(required = false) Boolean unread) {
         return ResponseEntity.ok(ApiResult.of("Notifications retrieved", notificationService.getNotifications(pageable, unread)));
     }
@@ -89,6 +91,22 @@ public class NotificationController {
             @Valid @RequestBody NotificationRequest request) {
         return ResponseEntity.ok(ApiResult.of("Notification updated",
                 notificationService.updateNotification(notificationId, request)));
+    }
+
+    @PatchMapping("/{notificationId}")
+    @Operation(summary = "Partially update a notification",
+            description = "Unlike PUT — which overwrites every field with whatever the request carries — "
+                    + "only the fields actually present in the request body are changed here; omitted "
+                    + "fields are left exactly as they were. Not to be confused with the narrower "
+                    + "`PATCH /{notificationId}/read` below, which only ever touches `readAt`.")
+    @ApiResponse(responseCode = "200", description = "Notification updated")
+    @ApiResponse(responseCode = "404", description = "Notification or actor user not found")
+    @RequirePermission(resource = Resource.NOTIFICATIONS, action = PermissionAction.UPDATE)
+    public ResponseEntity<ApiResult<NotificationResponse>> patchNotification(
+            @Parameter(description = "Notification UUID") @PathVariable String notificationId,
+            @Valid @RequestBody PatchNotificationRequest request) {
+        return ResponseEntity.ok(ApiResult.of("Notification updated",
+                notificationService.patchNotification(notificationId, request)));
     }
 
     @PatchMapping("/{notificationId}/read")
