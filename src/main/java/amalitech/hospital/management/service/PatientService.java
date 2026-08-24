@@ -7,6 +7,7 @@ import amalitech.hospital.management.dto.patient.MedicalRecordResponse;
 import amalitech.hospital.management.dto.patient.PatientAllergyResponse;
 import amalitech.hospital.management.dto.patient.PatientFeedbackResponse;
 import amalitech.hospital.management.dto.patient.PatientNoteResponse;
+import amalitech.hospital.management.dto.patient.PatchPatientRequest;
 import amalitech.hospital.management.dto.patient.PatientRequest;
 import amalitech.hospital.management.dto.patient.PatientResponse;
 import amalitech.hospital.management.dto.patient.ReferralResponse;
@@ -368,6 +369,53 @@ public class PatientService {
         patient.setAddress(request.getAddress());
         if (request.getStatus() != null && !request.getStatus().isBlank()) {
             patient.setStatus(validateStatus(request.getStatus()));
+        }
+        patient.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
+        return toResponse(patientRepository.save(patient));
+    }
+
+    /**
+     * Partial-update counterpart to {@link #updatePatient} — only the fields actually
+     * present in {@code patch} are changed; everything else on the existing patient is
+     * left untouched.
+     */
+    @Transactional
+    @CachePut(value = "patients", key = "#patientId")
+    public PatientResponse patchPatient(String patientId, PatchPatientRequest patch) {
+        Patient patient = findPatientOrThrow(patientId);
+
+        if (patch.getEmail() != null && !patch.getEmail().equals(patient.getEmail())
+                && patientRepository.existsByEmail(patch.getEmail())) {
+            throw new ConflictException("Email '" + patch.getEmail() + "' is already registered");
+        }
+        if (patch.getPhone() != null && !patch.getPhone().equals(patient.getPhone())
+                && patientRepository.existsByPhone(patch.getPhone())) {
+            throw new ConflictException("Phone '" + patch.getPhone() + "' is already registered");
+        }
+
+        if (patch.getFirstName() != null) {
+            patient.setFirstName(patch.getFirstName());
+        }
+        if (patch.getLastName() != null) {
+            patient.setLastName(patch.getLastName());
+        }
+        if (patch.getDob() != null) {
+            patient.setDob(patch.getDob());
+        }
+        if (patch.getGender() != null) {
+            patient.setGender(validateGender(patch.getGender()));
+        }
+        if (patch.getPhone() != null) {
+            patient.setPhone(patch.getPhone());
+        }
+        if (patch.getEmail() != null) {
+            patient.setEmail(patch.getEmail());
+        }
+        if (patch.getAddress() != null) {
+            patient.setAddress(patch.getAddress());
+        }
+        if (patch.getStatus() != null && !patch.getStatus().isBlank()) {
+            patient.setStatus(validateStatus(patch.getStatus()));
         }
         patient.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
         return toResponse(patientRepository.save(patient));
