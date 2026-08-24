@@ -5,6 +5,7 @@ import amalitech.hospital.management.dto.user.role.permission.PermissionResponse
 import amalitech.hospital.management.exception.runtime.NotFoundException;
 import amalitech.hospital.management.model.user.role.Permission;
 import amalitech.hospital.management.repository.user.role.PermissionRepository;
+import amalitech.hospital.management.utils.PageableDefaults;
 import amalitech.hospital.management.utils.filters.PagedRawResult;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.Cacheable;
@@ -42,8 +43,11 @@ public class PermissionService {
     @Lazy
     private final PermissionService self;
 
+    // Defaults to resource ASC (matching this endpoint's own Swagger sort example) when
+    // the caller sends no ?sort= at all — see PageableDefaults' own Javadoc.
     public PagedModel<PermissionResponse> getPermissions(Pageable pageable) {
-        return new PagedModel<>(permissionRepository.findAll(pageable).map(this::toResponse));
+        Pageable sorted = PageableDefaults.withDefaultSort(pageable, "resource", Sort.Direction.ASC);
+        return new PagedModel<>(permissionRepository.findAll(sorted).map(this::toResponse));
     }
 
     /**
