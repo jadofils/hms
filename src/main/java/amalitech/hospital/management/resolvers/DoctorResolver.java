@@ -3,6 +3,7 @@ package amalitech.hospital.management.resolvers;
 import amalitech.hospital.management.dto.doctor.DepartmentResponse;
 import amalitech.hospital.management.dto.doctor.DoctorRequest;
 import amalitech.hospital.management.dto.doctor.DoctorResponse;
+import amalitech.hospital.management.dto.doctor.PatchDoctorRequest;
 import amalitech.hospital.management.service.DoctorService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -47,6 +48,11 @@ public class DoctorResolver {
     @MutationMapping
     public DoctorResponse updateDoctor(@Argument String doctorId, @Argument @Valid DoctorRequest input) {
         return doctorService.updateDoctor(doctorId, input);
+    }
+
+    @MutationMapping
+    public DoctorResponse patchDoctor(@Argument String doctorId, @Argument @Valid PatchDoctorRequest input) {
+        return doctorService.patchDoctor(doctorId, input);
     }
 
     @MutationMapping
