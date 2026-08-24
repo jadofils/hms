@@ -1,5 +1,6 @@
 package amalitech.hospital.management.service;
 
+import amalitech.hospital.management.dto.pharmacy.PatchPrescriptionItemRequest;
 import amalitech.hospital.management.dto.pharmacy.PrescriptionItemRequest;
 import amalitech.hospital.management.dto.pharmacy.PrescriptionItemResponse;
 import amalitech.hospital.management.exception.runtime.NotFoundException;
@@ -63,6 +64,30 @@ public class PrescriptionItemService {
         item.setDosage(request.getDosage());
         item.setQuantity(request.getQuantity());
         item.setInstructions(request.getInstructions());
+        item.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
+        return toResponse(prescriptionItemRepository.save(item));
+    }
+
+    /**
+     * Partial-update counterpart to {@link #updateItem} — only the fields actually
+     * present in {@code patch} are changed; everything else on the existing item is
+     * left untouched.
+     */
+    @Transactional
+    public PrescriptionItemResponse patchItem(String prescriptionId, String itemId, PatchPrescriptionItemRequest patch) {
+        PrescriptionItem item = findItemOrThrow(prescriptionId, itemId);
+        if (patch.getMedicationId() != null) {
+            item.setMedication(findMedicationOrThrow(patch.getMedicationId()));
+        }
+        if (patch.getDosage() != null) {
+            item.setDosage(patch.getDosage());
+        }
+        if (patch.getQuantity() != null) {
+            item.setQuantity(patch.getQuantity());
+        }
+        if (patch.getInstructions() != null) {
+            item.setInstructions(patch.getInstructions());
+        }
         item.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
         return toResponse(prescriptionItemRepository.save(item));
     }
