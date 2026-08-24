@@ -2,6 +2,7 @@ package amalitech.hospital.management.resolvers;
 
 import amalitech.hospital.management.dto.doctor.DepartmentRequest;
 import amalitech.hospital.management.dto.doctor.DepartmentResponse;
+import amalitech.hospital.management.dto.doctor.PatchDepartmentRequest;
 import amalitech.hospital.management.dto.doctor.DoctorResponse;
 import amalitech.hospital.management.service.DepartmentService;
 import jakarta.validation.Valid;
@@ -47,6 +48,11 @@ public class DepartmentResolver {
     @MutationMapping
     public DepartmentResponse updateDepartment(@Argument String departmentId, @Argument @Valid DepartmentRequest input) {
         return departmentService.updateDepartment(departmentId, input);
+    }
+
+    @MutationMapping
+    public DepartmentResponse patchDepartment(@Argument String departmentId, @Argument @Valid PatchDepartmentRequest input) {
+        return departmentService.patchDepartment(departmentId, input);
     }
 
     @MutationMapping
