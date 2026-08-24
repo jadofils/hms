@@ -5,6 +5,7 @@ import amalitech.hospital.management.annotation.SqlQueryBuilder;
 import amalitech.hospital.management.dto.doctor.DepartmentResponse;
 import amalitech.hospital.management.dto.doctor.DoctorDepartmentRosterResponse;
 import amalitech.hospital.management.dto.doctor.DoctorRequest;
+import amalitech.hospital.management.dto.doctor.PatchDoctorRequest;
 import amalitech.hospital.management.dto.doctor.DoctorResponse;
 import amalitech.hospital.management.exception.runtime.BadRequestException;
 import amalitech.hospital.management.exception.runtime.ConflictException;
@@ -200,6 +201,42 @@ public class DoctorService {
         doctor.setSpecialization(request.getSpecialization());
         doctor.setPhone(request.getPhone());
         doctor.setEmail(request.getEmail());
+        doctor.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
+        return toResponse(doctorRepository.save(doctor));
+    }
+
+    /**
+     * Partial-update counterpart to {@link #updateDoctor} — only touches a field when
+     * the request actually included it. Same as {@code updateDoctor}, {@code
+     * departmentIds} is never touched — that's managed by {@link #assignDepartment}/
+     * {@link #removeDepartment} instead (see {@link PatchDoctorRequest}'s own Javadoc).
+     */
+    @Transactional
+    @CachePut(value = "doctors", key = "#doctorId")
+    public DoctorResponse patchDoctor(String doctorId, PatchDoctorRequest patch) {
+        Doctor doctor = findDoctorOrThrow(doctorId);
+
+        if (patch.getEmail() != null) {
+            if (!patch.getEmail().equals(doctor.getEmail()) && doctorRepository.existsByEmail(patch.getEmail())) {
+                throw new ConflictException("Email '" + patch.getEmail() + "' is already registered");
+            }
+            doctor.setEmail(patch.getEmail());
+        }
+        if (patch.getPhone() != null) {
+            if (!patch.getPhone().equals(doctor.getPhone()) && doctorRepository.existsByPhone(patch.getPhone())) {
+                throw new ConflictException("Phone '" + patch.getPhone() + "' is already registered");
+            }
+            doctor.setPhone(patch.getPhone());
+        }
+        if (patch.getFirstName() != null) {
+            doctor.setFirstName(patch.getFirstName());
+        }
+        if (patch.getLastName() != null) {
+            doctor.setLastName(patch.getLastName());
+        }
+        if (patch.getSpecialization() != null) {
+            doctor.setSpecialization(patch.getSpecialization());
+        }
         doctor.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
         return toResponse(doctorRepository.save(doctor));
     }
