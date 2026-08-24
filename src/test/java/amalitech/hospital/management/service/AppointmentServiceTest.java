@@ -354,6 +354,74 @@ class AppointmentServiceTest {
         verify(appointmentRepository, never()).save(any());
     }
 
+    // ── patchAppointment ─────────────────────────────────────────────────────
+
+    @Test
+    void patchAppointment_changesOnlyReason_skippingTheDoubleBookingCheck_whenOnlyReasonGiven() {
+        when(appointmentRepository.findById("appt-1")).thenReturn(Optional.of(existingAppointment));
+        when(appointmentRepository.save(any(Appointment.class))).thenAnswer(inv -> inv.getArgument(0));
+        amalitech.hospital.management.dto.patient.PatchAppointmentRequest patch =
+                new amalitech.hospital.management.dto.patient.PatchAppointmentRequest();
+        patch.setReason("Follow-up");
+
+        AppointmentResponse response = appointmentService.patchAppointment("appt-1", patch);
+
+        assertThat(response.getReason()).isEqualTo("Follow-up");
+        assertThat(response.getStatus()).isEqualTo("scheduled"); // untouched
+        verify(doctorRepository, never()).findById(any());
+        verify(appointmentRepository, never()).findByDoctor_DoctorIdAndDeletedAtIsNull(any());
+    }
+
+    @Test
+    void patchAppointment_reRunsDoubleBookingCheck_whenAppointmentDateGiven() {
+        Appointment other = new Appointment();
+        other.setAppointmentId("appt-2");
+        other.setDoctor(existingDoctor);
+        other.setAppointmentDate(LocalDateTime.now().plusDays(2));
+        when(appointmentRepository.findById("appt-1")).thenReturn(Optional.of(existingAppointment));
+        when(appointmentRepository.findByDoctor_DoctorIdAndDeletedAtIsNull("doctor-1"))
+                .thenReturn(List.of(existingAppointment, other));
+        when(self.sort(any(), any())).thenAnswer(inv -> inv.getArgument(0));
+        when(self.search(any(), any(), any())).thenReturn(0);
+        amalitech.hospital.management.dto.patient.PatchAppointmentRequest patch =
+                new amalitech.hospital.management.dto.patient.PatchAppointmentRequest();
+        patch.setAppointmentDate(other.getAppointmentDate());
+
+        assertThatThrownBy(() -> appointmentService.patchAppointment("appt-1", patch))
+                .isInstanceOf(ConflictException.class);
+        verify(appointmentRepository, never()).save(any());
+    }
+
+    @Test
+    void patchAppointment_movesToANewUnconflictedDoctor_whenDoctorIdGiven() {
+        Doctor secondDoctor = new Doctor();
+        secondDoctor.setDoctorId("doctor-2");
+        secondDoctor.setFirstName("Lisa");
+        secondDoctor.setLastName("Cuddy");
+        when(appointmentRepository.findById("appt-1")).thenReturn(Optional.of(existingAppointment));
+        when(doctorRepository.findById("doctor-2")).thenReturn(Optional.of(secondDoctor));
+        when(appointmentRepository.save(any(Appointment.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(appointmentRepository.findByDoctor_DoctorIdAndDeletedAtIsNull("doctor-2")).thenReturn(List.of());
+        when(self.sort(any(), any())).thenAnswer(inv -> inv.getArgument(0));
+        when(self.search(any(), any(), any())).thenReturn(-1);
+        amalitech.hospital.management.dto.patient.PatchAppointmentRequest patch =
+                new amalitech.hospital.management.dto.patient.PatchAppointmentRequest();
+        patch.setDoctorId("doctor-2");
+
+        AppointmentResponse response = appointmentService.patchAppointment("appt-1", patch);
+
+        assertThat(response.getDoctorId()).isEqualTo("doctor-2");
+    }
+
+    @Test
+    void patchAppointment_throwsNotFound_whenAbsent() {
+        when(appointmentRepository.findById("missing")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> appointmentService.patchAppointment("missing",
+                new amalitech.hospital.management.dto.patient.PatchAppointmentRequest()))
+                .isInstanceOf(NotFoundException.class);
+    }
+
     // ── deleteAppointment ────────────────────────────────────────────────────
 
     @Test
