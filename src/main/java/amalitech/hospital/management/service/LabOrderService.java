@@ -3,6 +3,7 @@ package amalitech.hospital.management.service;
 import amalitech.hospital.management.dto.lab.LabOrderRequest;
 import amalitech.hospital.management.dto.lab.LabOrderResponse;
 import amalitech.hospital.management.dto.lab.LabResultResponse;
+import amalitech.hospital.management.dto.lab.PatchLabOrderRequest;
 import amalitech.hospital.management.enums.LabOrderStatus;
 import amalitech.hospital.management.exception.runtime.BadRequestException;
 import amalitech.hospital.management.exception.runtime.NotFoundException;
@@ -14,11 +15,13 @@ import amalitech.hospital.management.repository.doctor.DoctorRepository;
 import amalitech.hospital.management.repository.lab.LabResultRepository;
 import amalitech.hospital.management.repository.patient.AppointmentRepository;
 import amalitech.hospital.management.repository.lab.LabOrderRepository;
+import amalitech.hospital.management.utils.PageableDefaults;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.CachePut;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PagedModel;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -52,11 +55,15 @@ public class LabOrderService {
      * already rely on for their own status filters.
      */
     public PagedModel<LabOrderResponse> getLabOrders(Pageable pageable, String status) {
+        // Defaults to orderedAt DESC (matching this endpoint's own Swagger sort
+        // example) when the caller sends no ?sort= at all — see PageableDefaults'
+        // own Javadoc.
+        Pageable sorted = PageableDefaults.withDefaultSort(pageable, "orderedAt", Sort.Direction.DESC);
         if (status == null || status.isBlank()) {
-            return new PagedModel<>(labOrderRepository.findAll(pageable).map(this::toResponse));
+            return new PagedModel<>(labOrderRepository.findAll(sorted).map(this::toResponse));
         }
         LabOrderStatus validated = validateStatus(status);
-        return new PagedModel<>(labOrderRepository.findByStatus(validated, pageable).map(this::toResponse));
+        return new PagedModel<>(labOrderRepository.findByStatus(validated, sorted).map(this::toResponse));
     }
 
     /** Not populated by {@link #getLabOrders} or by create/update — only by this
@@ -97,6 +104,31 @@ public class LabOrderService {
         labOrder.setTestName(request.getTestName());
         if (request.getStatus() != null && !request.getStatus().isBlank()) {
             labOrder.setStatus(validateStatus(request.getStatus()));
+        }
+        labOrder.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
+        return toResponse(labOrderRepository.save(labOrder));
+    }
+
+    /**
+     * Partial-update counterpart to {@link #updateLabOrder} — only the fields
+     * actually present in {@code patch} are changed; everything else on the existing
+     * order is left untouched.
+     */
+    @Transactional
+    @CachePut(value = "lab-orders", key = "#labOrderId")
+    public LabOrderResponse patchLabOrder(String labOrderId, PatchLabOrderRequest patch) {
+        LabOrder labOrder = findLabOrderOrThrow(labOrderId);
+        if (patch.getAppointmentId() != null) {
+            labOrder.setAppointment(findAppointmentOrThrow(patch.getAppointmentId()));
+        }
+        if (patch.getDoctorId() != null) {
+            labOrder.setDoctor(findDoctorOrThrow(patch.getDoctorId()));
+        }
+        if (patch.getTestName() != null) {
+            labOrder.setTestName(patch.getTestName());
+        }
+        if (patch.getStatus() != null && !patch.getStatus().isBlank()) {
+            labOrder.setStatus(validateStatus(patch.getStatus()));
         }
         labOrder.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
         return toResponse(labOrderRepository.save(labOrder));
