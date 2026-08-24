@@ -72,6 +72,38 @@ public class LabResultService {
         return toResponse(labResultRepository.save(result));
     }
 
+    /**
+     * Partial-update counterpart to {@link #updateResult} — reuses {@link LabResultRequest}
+     * itself rather than a dedicated Patch DTO (every field there is already optional/
+     * nullable at the validation level, unlike every other entity's Request DTO), but
+     * still needs its own method: {@code updateResult}'s body unconditionally overwrites
+     * every field with whatever the request carries (including {@code null}), so it's
+     * actually full-replace semantics under the hood despite the DTO looking
+     * patch-friendly — reusing it directly would silently null out any field the caller
+     * left out, which is exactly what a real PATCH must not do.
+     */
+    @Transactional
+    public LabResultResponse patchResult(String labOrderId, LabResultRequest patch) {
+        LabResult result = findResultOrThrow(labOrderId);
+        if (patch.getResultValue() != null) {
+            result.setResultValue(patch.getResultValue());
+        }
+        if (patch.getUnit() != null) {
+            result.setUnit(patch.getUnit());
+        }
+        if (patch.getReferenceRange() != null) {
+            result.setReferenceRange(patch.getReferenceRange());
+        }
+        if (patch.getIsAbnormal() != null) {
+            result.setIsAbnormal(patch.getIsAbnormal());
+        }
+        if (patch.getCompletedAt() != null) {
+            result.setCompletedAt(patch.getCompletedAt());
+        }
+        result.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
+        return toResponse(labResultRepository.save(result));
+    }
+
     @Transactional
     public void deleteResult(String labOrderId) {
         LabResult result = findResultOrThrow(labOrderId);
