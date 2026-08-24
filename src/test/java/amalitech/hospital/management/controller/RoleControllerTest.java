@@ -8,8 +8,10 @@ import org.springframework.test.web.servlet.MvcResult;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -49,6 +51,15 @@ class RoleControllerTest extends AbstractControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(updateBody))
                 .andExpect(status().isOk());
+
+        // PATCH only sends description — roleName must come back unchanged from the PUT above.
+        mockMvc.perform(patch("/api/v1/roles/" + roleId)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"description\":\"Patched description only\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.roleName").value(updatedRoleName))
+                .andExpect(jsonPath("$.data.description").value("Patched description only"));
 
         mockMvc.perform(delete("/api/v1/roles/" + roleId).header("Authorization", "Bearer " + token))
                 .andExpect(status().isNoContent());
