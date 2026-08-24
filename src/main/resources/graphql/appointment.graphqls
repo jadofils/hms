@@ -19,6 +19,18 @@ input AppointmentInput {
     status: String
 }
 
+"""Partial-update counterpart to AppointmentInput — every field optional; only the
+ones present in the request get changed. The double-booking check only re-runs when
+doctorId/appointmentDate are actually part of the patch — see
+AppointmentService.patchAppointment's own Javadoc."""
+input PatchAppointmentInput {
+    patientId: ID
+    doctorId: ID
+    appointmentDate: LocalDateTime
+    reason: String
+    status: String
+}
+
 extend type Query {
     """Sortable columns: appointmentId, patientId, doctorId, patientFirstName,
     patientLastName, doctorFirstName, doctorLastName, appointmentDate, status, reason.
@@ -32,5 +44,6 @@ extend type Query {
 extend type Mutation {
     createAppointment(input: AppointmentInput!): Appointment!
     updateAppointment(appointmentId: ID!, input: AppointmentInput!): Appointment!
+    patchAppointment(appointmentId: ID!, input: PatchAppointmentInput!): Appointment!
     deleteAppointment(appointmentId: ID!): Boolean!
 }
