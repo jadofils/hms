@@ -4,6 +4,7 @@ import amalitech.hospital.management.annotation.RequirePermission;
 import amalitech.hospital.management.dto.common.ApiResult;
 import amalitech.hospital.management.dto.doctor.DoctorScheduleRequest;
 import amalitech.hospital.management.dto.doctor.DoctorScheduleResponse;
+import amalitech.hospital.management.dto.doctor.PatchDoctorScheduleRequest;
 import amalitech.hospital.management.enums.PermissionAction;
 import amalitech.hospital.management.enums.Resource;
 import amalitech.hospital.management.service.DoctorScheduleService;
@@ -70,6 +71,23 @@ public class DoctorScheduleController {
             @Valid @RequestBody DoctorScheduleRequest request) {
         return ResponseEntity.ok(ApiResult.of("Schedule block updated",
                 doctorScheduleService.updateSchedule(doctorId, scheduleId, request)));
+    }
+
+    @PatchMapping("/{scheduleId}")
+    @Operation(summary = "Partially update a recurring availability block",
+            description = "Unlike PUT — which overwrites every field with whatever the request carries — "
+                    + "only the fields actually present in the request body are changed here; omitted "
+                    + "fields are left exactly as they were.")
+    @ApiResponse(responseCode = "200", description = "Schedule block updated")
+    @ApiResponse(responseCode = "400", description = "End time is not after start time")
+    @ApiResponse(responseCode = "404", description = "Doctor or schedule block not found")
+    @RequirePermission(resource = Resource.DOCTOR_SCHEDULES, action = PermissionAction.UPDATE)
+    public ResponseEntity<ApiResult<DoctorScheduleResponse>> patchSchedule(
+            @Parameter(description = "Doctor UUID") @PathVariable String doctorId,
+            @Parameter(description = "Schedule block UUID") @PathVariable String scheduleId,
+            @Valid @RequestBody PatchDoctorScheduleRequest request) {
+        return ResponseEntity.ok(ApiResult.of("Schedule block updated",
+                doctorScheduleService.patchSchedule(doctorId, scheduleId, request)));
     }
 
     @DeleteMapping("/{scheduleId}")
