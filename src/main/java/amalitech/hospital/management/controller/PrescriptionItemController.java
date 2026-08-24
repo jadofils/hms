@@ -2,6 +2,7 @@ package amalitech.hospital.management.controller;
 
 import amalitech.hospital.management.annotation.RequirePermission;
 import amalitech.hospital.management.dto.common.ApiResult;
+import amalitech.hospital.management.dto.pharmacy.PatchPrescriptionItemRequest;
 import amalitech.hospital.management.dto.pharmacy.PrescriptionItemRequest;
 import amalitech.hospital.management.dto.pharmacy.PrescriptionItemResponse;
 import amalitech.hospital.management.enums.PermissionAction;
@@ -66,6 +67,22 @@ public class PrescriptionItemController {
             @Valid @RequestBody PrescriptionItemRequest request) {
         return ResponseEntity.ok(ApiResult.of("Item updated",
                 prescriptionItemService.updateItem(prescriptionId, itemId, request)));
+    }
+
+    @PatchMapping("/{itemId}")
+    @Operation(summary = "Partially update a prescription line item",
+            description = "Unlike PUT — which overwrites every field with whatever the request carries — "
+                    + "only the fields actually present in the request body are changed here; omitted "
+                    + "fields are left exactly as they were.")
+    @ApiResponse(responseCode = "200", description = "Item updated")
+    @ApiResponse(responseCode = "404", description = "Prescription, item, or medication not found")
+    @RequirePermission(resource = Resource.PRESCRIPTION_ITEMS, action = PermissionAction.UPDATE)
+    public ResponseEntity<ApiResult<PrescriptionItemResponse>> patchItem(
+            @Parameter(description = "Prescription UUID") @PathVariable String prescriptionId,
+            @Parameter(description = "Item UUID") @PathVariable String itemId,
+            @Valid @RequestBody PatchPrescriptionItemRequest request) {
+        return ResponseEntity.ok(ApiResult.of("Item updated",
+                prescriptionItemService.patchItem(prescriptionId, itemId, request)));
     }
 
     @DeleteMapping("/{itemId}")
