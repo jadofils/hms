@@ -274,6 +274,61 @@ class DoctorServiceTest {
         verify(doctorRepository, never()).save(any());
     }
 
+    // ── patchDoctor ──────────────────────────────────────────────────────────
+
+    @Test
+    void patchDoctor_changesOnlySpecialization_whenOnlySpecializationGiven() {
+        when(doctorRepository.findById("doctor-1")).thenReturn(Optional.of(existingDoctor));
+        when(doctorRepository.save(any(Doctor.class))).thenAnswer(inv -> inv.getArgument(0));
+        amalitech.hospital.management.dto.doctor.PatchDoctorRequest patch =
+                new amalitech.hospital.management.dto.doctor.PatchDoctorRequest();
+        patch.setSpecialization("Oncology");
+
+        DoctorResponse response = doctorService.patchDoctor("doctor-1", patch);
+
+        assertThat(response.getSpecialization()).isEqualTo("Oncology");
+        assertThat(response.getFirstName()).isEqualTo("Greg"); // untouched
+        verify(doctorRepository, never()).existsByEmail(anyString());
+        verify(doctorRepository, never()).existsByPhone(anyString());
+    }
+
+    @Test
+    void patchDoctor_throwsConflict_whenEmailChangedToExistingOne() {
+        when(doctorRepository.findById("doctor-1")).thenReturn(Optional.of(existingDoctor));
+        when(doctorRepository.existsByEmail("taken@example.com")).thenReturn(true);
+        amalitech.hospital.management.dto.doctor.PatchDoctorRequest patch =
+                new amalitech.hospital.management.dto.doctor.PatchDoctorRequest();
+        patch.setEmail("taken@example.com");
+
+        assertThatThrownBy(() -> doctorService.patchDoctor("doctor-1", patch))
+                .isInstanceOf(ConflictException.class);
+        verify(doctorRepository, never()).save(any());
+    }
+
+    @Test
+    void patchDoctor_throwsConflict_whenPhoneChangedToExistingOne() {
+        when(doctorRepository.findById("doctor-1")).thenReturn(Optional.of(existingDoctor));
+        when(doctorRepository.existsByPhone("9998887")).thenReturn(true);
+        amalitech.hospital.management.dto.doctor.PatchDoctorRequest patch =
+                new amalitech.hospital.management.dto.doctor.PatchDoctorRequest();
+        patch.setPhone("9998887");
+
+        assertThatThrownBy(() -> doctorService.patchDoctor("doctor-1", patch))
+                .isInstanceOf(ConflictException.class);
+        verify(doctorRepository, never()).save(any());
+    }
+
+    @Test
+    void patchDoctor_throwsNotFound_whenAbsent() {
+        when(doctorRepository.findById("missing")).thenReturn(Optional.empty());
+        amalitech.hospital.management.dto.doctor.PatchDoctorRequest patch =
+                new amalitech.hospital.management.dto.doctor.PatchDoctorRequest();
+        patch.setFirstName("Greg");
+
+        assertThatThrownBy(() -> doctorService.patchDoctor("missing", patch))
+                .isInstanceOf(NotFoundException.class);
+    }
+
     // ── deleteDoctor ─────────────────────────────────────────────────────────
 
     @Test
