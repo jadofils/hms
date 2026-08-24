@@ -2,6 +2,7 @@ package amalitech.hospital.management.controller;
 
 import amalitech.hospital.management.annotation.RequirePermission;
 import amalitech.hospital.management.dto.common.ApiResult;
+import amalitech.hospital.management.dto.patient.PatchPatientRequest;
 import amalitech.hospital.management.dto.patient.PatientRequest;
 import amalitech.hospital.management.dto.patient.PatientResponse;
 import amalitech.hospital.management.enums.PermissionAction;
@@ -55,11 +56,12 @@ public class PatientController {
     @RequirePermission(resource = Resource.PATIENTS, action = PermissionAction.READ)
     public ResponseEntity<ApiResult<PagedModel<PatientResponse>>> getPatients(
             Pageable pageable,
-            @Parameter(description = "Filter by status: active, inactive")
+            @Parameter(description = "Filter by status: active, inactive", example = "active")
             @RequestParam(required = false) String status,
-            @Parameter(description = "Filter by gender: M, F, Other")
+            @Parameter(description = "Filter by gender: M, F, Other", example = "F")
             @RequestParam(required = false) String gender,
-            @Parameter(description = "Filter to patients at least this many years old — wins over status/gender")
+            @Parameter(description = "Filter to patients at least this many years old — wins over status/gender",
+                    example = "65")
             @RequestParam(required = false) Integer minAge) {
         return ResponseEntity.ok(
                 ApiResult.of("Patients retrieved", patientService.getPatients(pageable, status, gender, minAge)));
@@ -95,6 +97,21 @@ public class PatientController {
             @Parameter(description = "Patient UUID") @PathVariable String patientId,
             @Valid @RequestBody PatientRequest request) {
         return ResponseEntity.ok(ApiResult.of("Patient updated", patientService.updatePatient(patientId, request)));
+    }
+
+    @PatchMapping("/{patientId}")
+    @Operation(summary = "Partially update a patient",
+            description = "Unlike PUT — which overwrites every field with whatever the request carries — "
+                    + "only the fields actually present in the request body are changed here; omitted "
+                    + "fields are left exactly as they were.")
+    @ApiResponse(responseCode = "200", description = "Patient updated")
+    @ApiResponse(responseCode = "404", description = "Patient not found")
+    @ApiResponse(responseCode = "409", description = "Phone or email already registered")
+    @RequirePermission(resource = Resource.PATIENTS, action = PermissionAction.UPDATE)
+    public ResponseEntity<ApiResult<PatientResponse>> patchPatient(
+            @Parameter(description = "Patient UUID") @PathVariable String patientId,
+            @Valid @RequestBody PatchPatientRequest request) {
+        return ResponseEntity.ok(ApiResult.of("Patient updated", patientService.patchPatient(patientId, request)));
     }
 
     @DeleteMapping("/{patientId}")
