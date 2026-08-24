@@ -1,16 +1,19 @@
 package amalitech.hospital.management.service;
 
 import amalitech.hospital.management.dto.pharmacy.MedicationRequest;
+import amalitech.hospital.management.dto.pharmacy.PatchMedicationRequest;
 import amalitech.hospital.management.dto.pharmacy.MedicationResponse;
 import amalitech.hospital.management.exception.runtime.ConflictException;
 import amalitech.hospital.management.exception.runtime.NotFoundException;
 import amalitech.hospital.management.model.pharmacy.Medication;
 import amalitech.hospital.management.repository.pharmacy.MedicationRepository;
+import amalitech.hospital.management.utils.PageableDefaults;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.CachePut;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PagedModel;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,10 +38,13 @@ public class MedicationService {
      *  Javadoc for how this differs from {@code MedicalInventoryService}'s own
      *  batch-level {@code lowStock} filter. Omitted, this is the full catalog. */
     public PagedModel<MedicationResponse> getMedications(Pageable pageable, Boolean lowStock) {
+        // Defaults to name ASC (matching this endpoint's own Swagger sort example)
+        // when the caller sends no ?sort= at all — see PageableDefaults' own Javadoc.
+        Pageable sorted = PageableDefaults.withDefaultSort(pageable, "name", Sort.Direction.ASC);
         if (Boolean.TRUE.equals(lowStock)) {
-            return new PagedModel<>(medicationRepository.findLowStock(pageable).map(this::toResponse));
+            return new PagedModel<>(medicationRepository.findLowStock(sorted).map(this::toResponse));
         }
-        return new PagedModel<>(medicationRepository.findAll(pageable).map(this::toResponse));
+        return new PagedModel<>(medicationRepository.findAll(sorted).map(this::toResponse));
     }
 
     @Cacheable(value = "medications", key = "#medicationId")
@@ -74,6 +80,31 @@ public class MedicationService {
         medication.setGenericName(request.getGenericName());
         medication.setForm(request.getForm());
         medication.setUnitPrice(request.getUnitPrice());
+        medication.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
+        return toResponse(medicationRepository.save(medication));
+    }
+
+    /** Partial-update counterpart to {@link #updateMedication} — only touches a field
+     *  when the request actually included it. */
+    @Transactional
+    @CachePut(value = "medications", key = "#medicationId")
+    public MedicationResponse patchMedication(String medicationId, PatchMedicationRequest patch) {
+        Medication medication = findMedicationOrThrow(medicationId);
+        if (patch.getName() != null) {
+            if (!medication.getName().equals(patch.getName()) && medicationRepository.existsByName(patch.getName())) {
+                throw new ConflictException("Medication '" + patch.getName() + "' already exists");
+            }
+            medication.setName(patch.getName());
+        }
+        if (patch.getGenericName() != null) {
+            medication.setGenericName(patch.getGenericName());
+        }
+        if (patch.getForm() != null) {
+            medication.setForm(patch.getForm());
+        }
+        if (patch.getUnitPrice() != null) {
+            medication.setUnitPrice(patch.getUnitPrice());
+        }
         medication.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
         return toResponse(medicationRepository.save(medication));
     }
