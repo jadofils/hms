@@ -4,6 +4,7 @@ import amalitech.hospital.management.annotation.RequirePermission;
 import amalitech.hospital.management.dto.common.ApiResult;
 import amalitech.hospital.management.dto.patient.AppointmentRequest;
 import amalitech.hospital.management.dto.patient.AppointmentResponse;
+import amalitech.hospital.management.dto.patient.PatchAppointmentRequest;
 import amalitech.hospital.management.enums.PermissionAction;
 import amalitech.hospital.management.enums.Resource;
 import amalitech.hospital.management.service.AppointmentService;
@@ -55,7 +56,7 @@ public class AppointmentController {
     @RequirePermission(resource = Resource.APPOINTMENTS, action = PermissionAction.READ)
     public ResponseEntity<ApiResult<PagedModel<AppointmentResponse>>> getAppointments(
             Pageable pageable,
-            @Parameter(description = "Filter by status: scheduled, completed, cancelled")
+            @Parameter(description = "Filter by status: scheduled, completed, cancelled", example = "scheduled")
             @RequestParam(required = false) String status) {
         return ResponseEntity.ok(ApiResult.of("Appointments retrieved", appointmentService.getAppointments(pageable, status)));
     }
@@ -90,6 +91,23 @@ public class AppointmentController {
             @Valid @RequestBody AppointmentRequest request) {
         return ResponseEntity.ok(ApiResult.of("Appointment updated",
                 appointmentService.updateAppointment(appointmentId, request)));
+    }
+
+    @PatchMapping("/{appointmentId}")
+    @Operation(summary = "Partially update an appointment",
+            description = "Unlike PUT — which overwrites every field with whatever the request carries — "
+                    + "only the fields actually present in the request body are changed here; omitted "
+                    + "fields are left exactly as they were. The double-booking check only re-runs when "
+                    + "`doctorId`/`appointmentDate` are actually part of the patch.")
+    @ApiResponse(responseCode = "200", description = "Appointment updated")
+    @ApiResponse(responseCode = "404", description = "Appointment, patient, or doctor not found")
+    @ApiResponse(responseCode = "409", description = "Doctor already has an appointment at that date and time")
+    @RequirePermission(resource = Resource.APPOINTMENTS, action = PermissionAction.UPDATE)
+    public ResponseEntity<ApiResult<AppointmentResponse>> patchAppointment(
+            @Parameter(description = "Appointment UUID") @PathVariable String appointmentId,
+            @Valid @RequestBody PatchAppointmentRequest request) {
+        return ResponseEntity.ok(ApiResult.of("Appointment updated",
+                appointmentService.patchAppointment(appointmentId, request)));
     }
 
     @DeleteMapping("/{appointmentId}")
