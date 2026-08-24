@@ -4,6 +4,7 @@ import amalitech.hospital.management.annotation.RequirePermission;
 import amalitech.hospital.management.dto.common.ApiResult;
 import amalitech.hospital.management.dto.finance.InvoiceRequest;
 import amalitech.hospital.management.dto.finance.InvoiceResponse;
+import amalitech.hospital.management.dto.finance.PatchInvoiceRequest;
 import amalitech.hospital.management.enums.PermissionAction;
 import amalitech.hospital.management.enums.Resource;
 import amalitech.hospital.management.service.InvoiceService;
@@ -53,7 +54,7 @@ public class InvoiceController {
     @RequirePermission(resource = Resource.INVOICES, action = PermissionAction.READ)
     public ResponseEntity<ApiResult<PagedModel<InvoiceResponse>>> getInvoices(
             Pageable pageable,
-            @Parameter(description = "Filter by payment status: unpaid, partially_paid, paid")
+            @Parameter(description = "Filter by payment status: unpaid, partially_paid, paid", example = "unpaid")
             @RequestParam(required = false) String paymentStatus) {
         return ResponseEntity.ok(ApiResult.of("Invoices retrieved", invoiceService.getInvoices(pageable, paymentStatus)));
     }
@@ -87,6 +88,20 @@ public class InvoiceController {
             @Parameter(description = "Invoice UUID") @PathVariable String invoiceId,
             @Valid @RequestBody InvoiceRequest request) {
         return ResponseEntity.ok(ApiResult.of("Invoice updated", invoiceService.updateInvoice(invoiceId, request)));
+    }
+
+    @PatchMapping("/{invoiceId}")
+    @Operation(summary = "Partially update an invoice",
+            description = "Unlike PUT — which overwrites every field with whatever the request carries — "
+                    + "only the fields actually present in the request body are changed here; omitted "
+                    + "fields are left exactly as they were.")
+    @ApiResponse(responseCode = "200", description = "Invoice updated")
+    @ApiResponse(responseCode = "404", description = "Invoice, appointment, or patient not found")
+    @RequirePermission(resource = Resource.INVOICES, action = PermissionAction.UPDATE)
+    public ResponseEntity<ApiResult<InvoiceResponse>> patchInvoice(
+            @Parameter(description = "Invoice UUID") @PathVariable String invoiceId,
+            @Valid @RequestBody PatchInvoiceRequest request) {
+        return ResponseEntity.ok(ApiResult.of("Invoice updated", invoiceService.patchInvoice(invoiceId, request)));
     }
 
     @DeleteMapping("/{invoiceId}")
