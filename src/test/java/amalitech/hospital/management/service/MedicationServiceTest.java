@@ -20,6 +20,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -59,14 +60,31 @@ class MedicationServiceTest {
 
     @Test
     void getMedications_filtersByLowStock_whenLowStockTrue() {
-        var pageable = org.springframework.data.domain.PageRequest.of(0, 20);
-        when(medicationRepository.findLowStock(pageable))
+        // any(Pageable.class), not the literal instance passed in below —
+        // getMedications now applies a default sort (see PageableDefaults) when the
+        // caller sends none, so the Pageable that actually reaches the repository is a
+        // different (sorted) instance.
+        when(medicationRepository.findLowStock(any(org.springframework.data.domain.Pageable.class)))
                 .thenReturn(new org.springframework.data.domain.PageImpl<>(java.util.List.of(existingMedication)));
 
-        var result = medicationService.getMedications(pageable, true);
+        var result = medicationService.getMedications(org.springframework.data.domain.PageRequest.of(0, 20), true);
 
         assertThat(result.getContent()).hasSize(1);
         assertThat(result.getContent().get(0).getName()).isEqualTo("Amoxicillin");
+    }
+
+    @Test
+    void getMedications_defaultsToNameAscending_whenCallerSendsNoSort() {
+        when(medicationRepository.findAll(any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(java.util.List.of(existingMedication)));
+        ArgumentCaptor<org.springframework.data.domain.Pageable> captor =
+                ArgumentCaptor.forClass(org.springframework.data.domain.Pageable.class);
+
+        medicationService.getMedications(org.springframework.data.domain.PageRequest.of(0, 20), null);
+
+        verify(medicationRepository).findAll(captor.capture());
+        assertThat(captor.getValue().getSort())
+                .isEqualTo(org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.ASC, "name"));
     }
 
     @Test
@@ -160,6 +178,47 @@ class MedicationServiceTest {
         MedicationResponse response = medicationService.updateMedication("med-1", request);
 
         assertThat(response.getName()).isEqualTo("Paracetamol");
+    }
+
+    // ── patchMedication ──────────────────────────────────────────────────────
+
+    @Test
+    void patchMedication_changesOnlyForm_whenOnlyFormGiven() {
+        when(medicationRepository.findById("med-1")).thenReturn(Optional.of(existingMedication));
+        when(medicationRepository.save(any(Medication.class))).thenAnswer(inv -> inv.getArgument(0));
+        amalitech.hospital.management.dto.pharmacy.PatchMedicationRequest patch =
+                new amalitech.hospital.management.dto.pharmacy.PatchMedicationRequest();
+        patch.setForm("syrup");
+
+        MedicationResponse response = medicationService.patchMedication("med-1", patch);
+
+        assertThat(response.getForm()).isEqualTo("syrup");
+        assertThat(response.getName()).isEqualTo("Amoxicillin"); // untouched
+        verify(medicationRepository, never()).existsByName(anyString());
+    }
+
+    @Test
+    void patchMedication_throwsConflict_whenRenamedToExistingName() {
+        when(medicationRepository.findById("med-1")).thenReturn(Optional.of(existingMedication));
+        when(medicationRepository.existsByName("Paracetamol")).thenReturn(true);
+        amalitech.hospital.management.dto.pharmacy.PatchMedicationRequest patch =
+                new amalitech.hospital.management.dto.pharmacy.PatchMedicationRequest();
+        patch.setName("Paracetamol");
+
+        assertThatThrownBy(() -> medicationService.patchMedication("med-1", patch))
+                .isInstanceOf(ConflictException.class);
+        verify(medicationRepository, never()).save(any());
+    }
+
+    @Test
+    void patchMedication_throwsNotFound_whenAbsent() {
+        when(medicationRepository.findById("missing")).thenReturn(Optional.empty());
+        amalitech.hospital.management.dto.pharmacy.PatchMedicationRequest patch =
+                new amalitech.hospital.management.dto.pharmacy.PatchMedicationRequest();
+        patch.setName("Amoxicillin");
+
+        assertThatThrownBy(() -> medicationService.patchMedication("missing", patch))
+                .isInstanceOf(NotFoundException.class);
     }
 
     @Test
