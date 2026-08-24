@@ -2,6 +2,7 @@ package amalitech.hospital.management.resolvers;
 
 import amalitech.hospital.management.dto.pharmacy.MedicationRequest;
 import amalitech.hospital.management.dto.pharmacy.MedicationResponse;
+import amalitech.hospital.management.dto.pharmacy.PatchMedicationRequest;
 import amalitech.hospital.management.service.MedicationService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -46,6 +47,11 @@ public class MedicationResolver {
     @MutationMapping
     public MedicationResponse updateMedication(@Argument String medicationId, @Argument @Valid MedicationRequest input) {
         return medicationService.updateMedication(medicationId, input);
+    }
+
+    @MutationMapping
+    public MedicationResponse patchMedication(@Argument String medicationId, @Argument @Valid PatchMedicationRequest input) {
+        return medicationService.patchMedication(medicationId, input);
     }
 
     @MutationMapping
