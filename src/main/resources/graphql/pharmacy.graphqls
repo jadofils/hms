@@ -42,10 +42,30 @@ input MedicationInput {
     unitPrice: BigDecimal
 }
 
+"""Partial-update counterpart to MedicationInput — every field optional; only the ones
+present in the request get changed."""
+input PatchMedicationInput {
+    name: String
+    genericName: String
+    form: String
+    unitPrice: BigDecimal
+}
+
 input MedicalInventoryInput {
     medicationId: ID!
     batchNumber: String
     expiryDate: Date!
+    quantityInStock: Int
+    reorderLevel: Int
+    supplier: String
+}
+
+"""Partial-update counterpart to MedicalInventoryInput — every field optional; only
+the ones present in the request get changed."""
+input PatchMedicalInventoryInput {
+    medicationId: ID
+    batchNumber: String
+    expiryDate: Date
     quantityInStock: Int
     reorderLevel: Int
     supplier: String
@@ -56,10 +76,26 @@ input PrescriptionInput {
     dateIssued: Date
 }
 
+"""Partial-update counterpart to PrescriptionInput — every field optional; only the
+ones present in the request get changed."""
+input PatchPrescriptionInput {
+    appointmentId: ID
+    dateIssued: Date
+}
+
 input PrescriptionItemInput {
     medicationId: ID!
     dosage: String
     quantity: Int!
+    instructions: String
+}
+
+"""Partial-update counterpart to PrescriptionItemInput — every field optional; only
+the ones present in the request get changed."""
+input PatchPrescriptionItemInput {
+    medicationId: ID
+    dosage: String
+    quantity: Int
     instructions: String
 }
 
@@ -90,17 +126,21 @@ extend type Query {
 extend type Mutation {
     createMedication(input: MedicationInput!): Medication!
     updateMedication(medicationId: ID!, input: MedicationInput!): Medication!
+    patchMedication(medicationId: ID!, input: PatchMedicationInput!): Medication!
     deleteMedication(medicationId: ID!): Boolean!
 
     createInventoryRecord(input: MedicalInventoryInput!): MedicalInventory!
     updateInventoryRecord(inventoryId: ID!, input: MedicalInventoryInput!): MedicalInventory!
+    patchInventoryRecord(inventoryId: ID!, input: PatchMedicalInventoryInput!): MedicalInventory!
     deleteInventoryRecord(inventoryId: ID!): Boolean!
 
     createPrescription(input: PrescriptionInput!): Prescription!
     updatePrescription(prescriptionId: ID!, input: PrescriptionInput!): Prescription!
+    patchPrescription(prescriptionId: ID!, input: PatchPrescriptionInput!): Prescription!
     deletePrescription(prescriptionId: ID!): Boolean!
 
     createPrescriptionItem(prescriptionId: ID!, input: PrescriptionItemInput!): PrescriptionItem!
     updatePrescriptionItem(prescriptionId: ID!, itemId: ID!, input: PrescriptionItemInput!): PrescriptionItem!
+    patchPrescriptionItem(prescriptionId: ID!, itemId: ID!, input: PatchPrescriptionItemInput!): PrescriptionItem!
     deletePrescriptionItem(prescriptionId: ID!, itemId: ID!): Boolean!
 }
