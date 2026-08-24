@@ -17,11 +17,14 @@ import amalitech.hospital.management.repository.patient.AppointmentRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PagedModel;
 
 import java.time.LocalDateTime;
@@ -31,6 +34,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -82,7 +86,10 @@ class LabOrderServiceTest {
     @Test
     void getLabOrders_returnsUnfilteredPage_whenStatusOmitted() {
         Page<LabOrder> page = new PageImpl<>(List.of(existingLabOrder), PageRequest.of(0, 20), 1);
-        when(labOrderRepository.findAll(PageRequest.of(0, 20))).thenReturn(page);
+        // any(Pageable.class), not the literal instance passed in below — getLabOrders now
+        // applies a default sort (see PageableDefaults) when the caller sends none, so the
+        // Pageable that actually reaches the repository is a different (sorted) instance.
+        when(labOrderRepository.findAll(any(Pageable.class))).thenReturn(page);
 
         PagedModel<LabOrderResponse> result = labOrderService.getLabOrders(PageRequest.of(0, 20), null);
 
@@ -93,12 +100,24 @@ class LabOrderServiceTest {
     @Test
     void getLabOrders_filtersByValidatedStatus_whenProvided() {
         Page<LabOrder> page = new PageImpl<>(List.of(existingLabOrder), PageRequest.of(0, 20), 1);
-        when(labOrderRepository.findByStatus(LabOrderStatus.ORDERED, PageRequest.of(0, 20))).thenReturn(page);
+        when(labOrderRepository.findByStatus(eq(LabOrderStatus.ORDERED), any(Pageable.class))).thenReturn(page);
 
         PagedModel<LabOrderResponse> result = labOrderService.getLabOrders(PageRequest.of(0, 20), "Ordered");
 
         assertThat(result.getContent()).hasSize(1);
         assertThat(result.getContent().get(0).getStatus()).isEqualTo("ordered");
+    }
+
+    @Test
+    void getLabOrders_defaultsToOrderedAtDescending_whenCallerSendsNoSort() {
+        Page<LabOrder> page = new PageImpl<>(List.of(existingLabOrder), PageRequest.of(0, 20), 1);
+        when(labOrderRepository.findAll(any(Pageable.class))).thenReturn(page);
+        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
+
+        labOrderService.getLabOrders(PageRequest.of(0, 20), null);
+
+        verify(labOrderRepository).findAll(captor.capture());
+        assertThat(captor.getValue().getSort()).isEqualTo(Sort.by(Sort.Direction.DESC, "orderedAt"));
     }
 
     @Test
@@ -250,6 +269,44 @@ class LabOrderServiceTest {
         LabOrderResponse response = labOrderService.updateLabOrder("lab-1", request);
 
         assertThat(response.getStatus()).isEqualTo("completed");
+    }
+
+    // ── patchLabOrder ────────────────────────────────────────────────────────
+
+    @Test
+    void patchLabOrder_changesOnlyStatus_whenOnlyStatusGiven() {
+        when(labOrderRepository.findById("lab-1")).thenReturn(Optional.of(existingLabOrder));
+        when(labOrderRepository.save(any(LabOrder.class))).thenAnswer(inv -> inv.getArgument(0));
+        amalitech.hospital.management.dto.lab.PatchLabOrderRequest patch =
+                new amalitech.hospital.management.dto.lab.PatchLabOrderRequest();
+        patch.setStatus("completed");
+
+        LabOrderResponse response = labOrderService.patchLabOrder("lab-1", patch);
+
+        assertThat(response.getStatus()).isEqualTo("completed");
+        assertThat(response.getTestName()).isEqualTo("Blood Panel"); // untouched
+        verify(appointmentRepository, never()).findById(any());
+        verify(doctorRepository, never()).findById(any());
+    }
+
+    @Test
+    void patchLabOrder_throwsBadRequest_whenStatusInvalid() {
+        when(labOrderRepository.findById("lab-1")).thenReturn(Optional.of(existingLabOrder));
+        amalitech.hospital.management.dto.lab.PatchLabOrderRequest patch =
+                new amalitech.hospital.management.dto.lab.PatchLabOrderRequest();
+        patch.setStatus("bogus");
+
+        assertThatThrownBy(() -> labOrderService.patchLabOrder("lab-1", patch))
+                .isInstanceOf(BadRequestException.class);
+    }
+
+    @Test
+    void patchLabOrder_throwsNotFound_whenAbsent() {
+        when(labOrderRepository.findById("missing")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> labOrderService.patchLabOrder("missing",
+                new amalitech.hospital.management.dto.lab.PatchLabOrderRequest()))
+                .isInstanceOf(NotFoundException.class);
     }
 
     @Test
