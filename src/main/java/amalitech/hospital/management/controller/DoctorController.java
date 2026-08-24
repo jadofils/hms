@@ -5,6 +5,7 @@ import amalitech.hospital.management.dto.common.ApiResult;
 import amalitech.hospital.management.dto.doctor.DoctorDepartmentRosterResponse;
 import amalitech.hospital.management.dto.doctor.DoctorRequest;
 import amalitech.hospital.management.dto.doctor.DoctorResponse;
+import amalitech.hospital.management.dto.doctor.PatchDoctorRequest;
 import amalitech.hospital.management.enums.PermissionAction;
 import amalitech.hospital.management.enums.Resource;
 import amalitech.hospital.management.service.DoctorService;
@@ -90,6 +91,21 @@ public class DoctorController {
             @Parameter(description = "Doctor UUID") @PathVariable String doctorId,
             @Valid @RequestBody DoctorRequest request) {
         return ResponseEntity.ok(ApiResult.of("Doctor updated", doctorService.updateDoctor(doctorId, request)));
+    }
+
+    @PatchMapping("/{doctorId}")
+    @Operation(summary = "Partially update a doctor",
+            description = "Unlike PUT, only the fields actually present in the request body are changed — "
+                    + "omitted fields are left exactly as they were. Same as PUT, departmentIds is ignored "
+                    + "entirely — department membership is managed by the assign/remove department endpoints.")
+    @ApiResponse(responseCode = "200", description = "Doctor updated")
+    @ApiResponse(responseCode = "404", description = "Doctor not found")
+    @ApiResponse(responseCode = "409", description = "Phone or email already registered")
+    @RequirePermission(resource = Resource.DOCTORS, action = PermissionAction.UPDATE)
+    public ResponseEntity<ApiResult<DoctorResponse>> patchDoctor(
+            @Parameter(description = "Doctor UUID") @PathVariable String doctorId,
+            @Valid @RequestBody PatchDoctorRequest request) {
+        return ResponseEntity.ok(ApiResult.of("Doctor updated", doctorService.patchDoctor(doctorId, request)));
     }
 
     @DeleteMapping("/{doctorId}")
