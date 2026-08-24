@@ -2,6 +2,7 @@ package amalitech.hospital.management.resolvers;
 
 import amalitech.hospital.management.dto.doctor.DoctorScheduleRequest;
 import amalitech.hospital.management.dto.doctor.DoctorScheduleResponse;
+import amalitech.hospital.management.dto.doctor.PatchDoctorScheduleRequest;
 import amalitech.hospital.management.service.DoctorScheduleService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -45,6 +46,12 @@ public class DoctorScheduleResolver {
     public DoctorScheduleResponse updateDoctorSchedule(@Argument String doctorId, @Argument String scheduleId,
             @Argument @Valid DoctorScheduleRequest input) {
         return doctorScheduleService.updateSchedule(doctorId, scheduleId, input);
+    }
+
+    @MutationMapping
+    public DoctorScheduleResponse patchDoctorSchedule(@Argument String doctorId, @Argument String scheduleId,
+            @Argument @Valid PatchDoctorScheduleRequest input) {
+        return doctorScheduleService.patchSchedule(doctorId, scheduleId, input);
     }
 
     @MutationMapping
