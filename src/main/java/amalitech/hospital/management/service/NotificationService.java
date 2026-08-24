@@ -2,12 +2,14 @@ package amalitech.hospital.management.service;
 
 import amalitech.hospital.management.dto.notification.NotificationRequest;
 import amalitech.hospital.management.dto.notification.NotificationResponse;
+import amalitech.hospital.management.dto.notification.PatchNotificationRequest;
 import amalitech.hospital.management.exception.runtime.BadRequestException;
 import amalitech.hospital.management.exception.runtime.NotFoundException;
 import amalitech.hospital.management.model.notification.Notification;
 import amalitech.hospital.management.model.user.User;
 import amalitech.hospital.management.repository.notification.NotificationRepository;
 import amalitech.hospital.management.repository.user.UserRepository;
+import amalitech.hospital.management.utils.PageableDefaults;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -17,6 +19,7 @@ import org.springframework.cache.annotation.CachePut;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PagedModel;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -58,12 +61,16 @@ public class NotificationService {
      * example.
      */
     public PagedModel<NotificationResponse> getNotifications(Pageable pageable, Boolean unread) {
+        // Defaults to createdAt DESC (matching this endpoint's own Swagger sort
+        // example) when the caller sends no ?sort= at all — see PageableDefaults'
+        // own Javadoc.
+        Pageable sorted = PageableDefaults.withDefaultSort(pageable, "createdAt", Sort.Direction.DESC);
         if (unread == null) {
-            return new PagedModel<>(notificationRepository.findAll(pageable).map(this::toResponse));
+            return new PagedModel<>(notificationRepository.findAll(sorted).map(this::toResponse));
         }
         Page<Notification> page = unread
-                ? notificationRepository.findByReadAtIsNull(pageable)
-                : notificationRepository.findByReadAtIsNotNull(pageable);
+                ? notificationRepository.findByReadAtIsNull(sorted)
+                : notificationRepository.findByReadAtIsNotNull(sorted);
         return new PagedModel<>(page.map(this::toResponse));
     }
 
@@ -107,6 +114,43 @@ public class NotificationService {
         notification.setStatus(validateJson(request.getStatus(), "status"));
         if (request.getPriority() != null && !request.getPriority().isBlank()) {
             notification.setPriority(request.getPriority().toLowerCase());
+        }
+        notification.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
+        return toResponse(notificationRepository.save(notification));
+    }
+
+    /**
+     * Partial-update counterpart to {@link #updateNotification} — only the fields
+     * actually present in {@code patch} are changed; everything else is left untouched.
+     * {@code actorUserId}/{@code payload}/{@code channels}/{@code status} are each
+     * treated as "given" the moment the field is non-null (even if blank) — a blank
+     * value clears that field, same as {@link #updateNotification} already does for a
+     * value the caller did send.
+     */
+    @Transactional
+    @CachePut(value = "notifications", key = "#notificationId")
+    public NotificationResponse patchNotification(String notificationId, PatchNotificationRequest patch) {
+        Notification notification = findNotificationOrThrow(notificationId);
+        if (patch.getType() != null) {
+            notification.setType(patch.getType());
+        }
+        if (patch.getActorUserId() != null) {
+            notification.setActor(patch.getActorUserId().isBlank() ? null : findUserOrThrow(patch.getActorUserId()));
+        }
+        if (patch.getRecipients() != null) {
+            notification.setRecipients(writeRecipients(patch.getRecipients()));
+        }
+        if (patch.getPayload() != null) {
+            notification.setPayload(validateJson(patch.getPayload(), "payload"));
+        }
+        if (patch.getChannels() != null) {
+            notification.setChannels(validateJson(patch.getChannels(), "channels"));
+        }
+        if (patch.getStatus() != null) {
+            notification.setStatus(validateJson(patch.getStatus(), "status"));
+        }
+        if (patch.getPriority() != null && !patch.getPriority().isBlank()) {
+            notification.setPriority(patch.getPriority().toLowerCase());
         }
         notification.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
         return toResponse(notificationRepository.save(notification));
