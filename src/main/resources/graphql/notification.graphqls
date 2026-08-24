@@ -26,6 +26,18 @@ input NotificationInput {
     priority: String
 }
 
+"""Partial-update counterpart to NotificationInput — every field optional; only the
+ones present in the request get changed."""
+input PatchNotificationInput {
+    type: String
+    actorUserId: ID
+    recipients: [String!]
+    payload: String
+    channels: String
+    status: String
+    priority: String
+}
+
 extend type Query {
     """Sortable columns: notificationId, type, status, priority, readAt, createdAt,
     updatedAt. `sort` uses the same "property,direction" format REST's own `?sort=`
@@ -39,6 +51,7 @@ extend type Query {
 extend type Mutation {
     createNotification(input: NotificationInput!): Notification!
     updateNotification(notificationId: ID!, input: NotificationInput!): Notification!
+    patchNotification(notificationId: ID!, input: PatchNotificationInput!): Notification!
     markNotificationAsRead(notificationId: ID!): Notification!
     deleteNotification(notificationId: ID!): Boolean!
 }
