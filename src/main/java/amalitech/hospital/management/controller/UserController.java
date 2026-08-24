@@ -3,6 +3,7 @@ package amalitech.hospital.management.controller;
 import amalitech.hospital.management.annotation.RequirePermission;
 import amalitech.hospital.management.dto.common.ApiResult;
 import amalitech.hospital.management.dto.user.AdminCreateUserRequest;
+import amalitech.hospital.management.dto.user.PatchUserRequest;
 import amalitech.hospital.management.dto.user.UserRequest;
 import amalitech.hospital.management.dto.user.UserResponse;
 import amalitech.hospital.management.dto.user.role.RoleResponse;
@@ -88,6 +89,23 @@ public class UserController {
             @Parameter(description = "User UUID") @PathVariable String userId,
             @Valid @RequestBody UserRequest request) {
         return ResponseEntity.ok(ApiResult.of("User updated", userService.updateUser(userId, request)));
+    }
+
+    @PatchMapping("/{userId}")
+    @Operation(summary = "Partially update a user",
+            description = "Unlike PUT — which overwrites every field with whatever the request carries — "
+                    + "only the fields actually present in the request body are changed here; omitted "
+                    + "fields are left exactly as they were. Has no `password` field at all — change a "
+                    + "password exclusively through `/api/v1/auth/change-password` or the forgot/reset-"
+                    + "password flow.")
+    @ApiResponse(responseCode = "200", description = "User updated")
+    @ApiResponse(responseCode = "404", description = "User not found")
+    @ApiResponse(responseCode = "409", description = "Username or email already taken")
+    @RequirePermission(resource = Resource.USERS, action = PermissionAction.UPDATE)
+    public ResponseEntity<ApiResult<UserResponse>> patchUser(
+            @Parameter(description = "User UUID") @PathVariable String userId,
+            @Valid @RequestBody PatchUserRequest request) {
+        return ResponseEntity.ok(ApiResult.of("User updated", userService.patchUser(userId, request)));
     }
 
     @DeleteMapping("/{userId}")
