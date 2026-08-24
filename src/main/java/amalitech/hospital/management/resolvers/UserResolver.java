@@ -1,6 +1,7 @@
 package amalitech.hospital.management.resolvers;
 
 import amalitech.hospital.management.dto.user.AdminCreateUserRequest;
+import amalitech.hospital.management.dto.user.PatchUserRequest;
 import amalitech.hospital.management.dto.user.UserRequest;
 import amalitech.hospital.management.dto.user.UserResponse;
 import amalitech.hospital.management.service.UserService;
@@ -64,6 +65,11 @@ public class UserResolver {
     @MutationMapping
     public UserResponse updateUser(@Argument String userId, @Argument @Valid UserRequest input) {
         return userService.updateUser(userId, input);
+    }
+
+    @MutationMapping
+    public UserResponse patchUser(@Argument String userId, @Argument @Valid PatchUserRequest input) {
+        return userService.patchUser(userId, input);
     }
 
     @MutationMapping
