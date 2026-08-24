@@ -1,6 +1,7 @@
 package amalitech.hospital.management.service;
 
 import amalitech.hospital.management.aop.EventBus;
+import amalitech.hospital.management.dto.pharmacy.PatchPrescriptionRequest;
 import amalitech.hospital.management.dto.pharmacy.PrescriptionItemResponse;
 import amalitech.hospital.management.dto.pharmacy.PrescriptionRequest;
 import amalitech.hospital.management.dto.pharmacy.PrescriptionResponse;
@@ -12,11 +13,13 @@ import amalitech.hospital.management.model.pharmacy.PrescriptionItem;
 import amalitech.hospital.management.repository.patient.AppointmentRepository;
 import amalitech.hospital.management.repository.pharmacy.PrescriptionItemRepository;
 import amalitech.hospital.management.repository.pharmacy.PrescriptionRepository;
+import amalitech.hospital.management.utils.PageableDefaults;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.CachePut;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PagedModel;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,11 +47,16 @@ public class PrescriptionService {
      *  the prescriptions written for that patient's own appointments (e.g. a "this
      *  patient's prescription history" view). */
     public PagedModel<PrescriptionResponse> getPrescriptions(Pageable pageable, String patientId) {
+        // Defaults to dateIssued DESC (matching this endpoint's own Swagger sort
+        // example) when the caller sends no ?sort= at all — covers both branches
+        // below, applied once here rather than duplicated in each. See
+        // PageableDefaults' own Javadoc.
+        Pageable sorted = PageableDefaults.withDefaultSort(pageable, "dateIssued", Sort.Direction.DESC);
         if (patientId == null || patientId.isBlank()) {
-            return new PagedModel<>(prescriptionRepository.findAll(pageable).map(this::toResponse));
+            return new PagedModel<>(prescriptionRepository.findAll(sorted).map(this::toResponse));
         }
         return new PagedModel<>(prescriptionRepository
-                .findByAppointment_Patient_PatientIdAndDeletedAtIsNull(patientId, pageable).map(this::toResponse));
+                .findByAppointment_Patient_PatientIdAndDeletedAtIsNull(patientId, sorted).map(this::toResponse));
     }
 
     /** Not populated by {@link #getPrescriptions} or by create/update — only by this
@@ -85,6 +93,25 @@ public class PrescriptionService {
 
         prescription.setAppointment(appointment);
         prescription.setDateIssued(request.getDateIssued() == null ? LocalDate.now(ZoneId.systemDefault()) : request.getDateIssued());
+        prescription.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
+        return toResponse(prescriptionRepository.save(prescription));
+    }
+
+    /**
+     * Partial-update counterpart to {@link #updatePrescription} — only the fields
+     * actually present in {@code patch} are changed; everything else on the existing
+     * prescription is left untouched.
+     */
+    @Transactional
+    @CachePut(value = "prescriptions", key = "#prescriptionId")
+    public PrescriptionResponse patchPrescription(String prescriptionId, PatchPrescriptionRequest patch) {
+        Prescription prescription = findPrescriptionOrThrow(prescriptionId);
+        if (patch.getAppointmentId() != null) {
+            prescription.setAppointment(findAppointmentOrThrow(patch.getAppointmentId()));
+        }
+        if (patch.getDateIssued() != null) {
+            prescription.setDateIssued(patch.getDateIssued());
+        }
         prescription.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
         return toResponse(prescriptionRepository.save(prescription));
     }
