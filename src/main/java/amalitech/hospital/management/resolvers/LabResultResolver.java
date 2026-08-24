@@ -40,6 +40,11 @@ public class LabResultResolver {
     }
 
     @MutationMapping
+    public LabResultResponse patchLabResult(@Argument String labOrderId, @Argument @Valid LabResultRequest input) {
+        return labResultService.patchResult(labOrderId, input);
+    }
+
+    @MutationMapping
     public boolean deleteLabResult(@Argument String labOrderId) {
         labResultService.deleteResult(labOrderId);
         return true;
