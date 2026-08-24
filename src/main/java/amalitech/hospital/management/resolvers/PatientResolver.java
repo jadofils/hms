@@ -1,5 +1,6 @@
 package amalitech.hospital.management.resolvers;
 
+import amalitech.hospital.management.dto.patient.PatchPatientRequest;
 import amalitech.hospital.management.dto.patient.PatientRequest;
 import amalitech.hospital.management.dto.patient.PatientResponse;
 import amalitech.hospital.management.service.PatientService;
@@ -46,6 +47,11 @@ public class PatientResolver {
     @MutationMapping
     public PatientResponse updatePatient(@Argument String patientId, @Argument @Valid PatientRequest input) {
         return patientService.updatePatient(patientId, input);
+    }
+
+    @MutationMapping
+    public PatientResponse patchPatient(@Argument String patientId, @Argument @Valid PatchPatientRequest input) {
+        return patientService.patchPatient(patientId, input);
     }
 
     @MutationMapping
