@@ -15,6 +15,12 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PagedModel;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -52,6 +58,31 @@ class DepartmentServiceTest {
         existingDepartment.setLocation("Building A");
         existingDepartment.setPhone("1234567");
         existingDepartment.setDoctors(new ArrayList<>());
+    }
+
+    // ── getDepartments ───────────────────────────────────────────────────────
+
+    @Test
+    void getDepartments_mapsPageOfEntitiesToResponses() {
+        Page<Department> page = new PageImpl<>(List.of(existingDepartment), PageRequest.of(0, 20), 1);
+        when(departmentRepository.findAll(any(Pageable.class))).thenReturn(page);
+
+        PagedModel<DepartmentResponse> result = departmentService.getDepartments(PageRequest.of(0, 20));
+
+        assertThat(result.getContent()).hasSize(1);
+        assertThat(result.getContent().get(0).getName()).isEqualTo("Cardiology");
+    }
+
+    @Test
+    void getDepartments_defaultsToNameAscending_whenCallerSendsNoSort() {
+        Page<Department> page = new PageImpl<>(List.of(existingDepartment), PageRequest.of(0, 20), 1);
+        when(departmentRepository.findAll(any(Pageable.class))).thenReturn(page);
+        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
+
+        departmentService.getDepartments(PageRequest.of(0, 20));
+
+        verify(departmentRepository).findAll(captor.capture());
+        assertThat(captor.getValue().getSort()).isEqualTo(Sort.by(Sort.Direction.ASC, "name"));
     }
 
     // ── getDepartment ────────────────────────────────────────────────────────
@@ -165,6 +196,64 @@ class DepartmentServiceTest {
         DepartmentRequest request = requestFor("Cardiology", "9998887");
 
         assertThatThrownBy(() -> departmentService.updateDepartment("dept-1", request))
+                .isInstanceOf(ConflictException.class);
+        verify(departmentRepository, never()).save(any());
+    }
+
+    // ── patchDepartment ──────────────────────────────────────────────────────
+
+    @Test
+    void patchDepartment_changesOnlyLocation_whenOnlyLocationGiven() {
+        when(departmentRepository.findById("dept-1")).thenReturn(Optional.of(existingDepartment));
+        when(departmentRepository.save(any(Department.class))).thenAnswer(inv -> inv.getArgument(0));
+        amalitech.hospital.management.dto.doctor.PatchDepartmentRequest patch =
+                new amalitech.hospital.management.dto.doctor.PatchDepartmentRequest();
+        patch.setLocation("Building B");
+
+        DepartmentResponse response = departmentService.patchDepartment("dept-1", patch);
+
+        assertThat(response.getLocation()).isEqualTo("Building B");
+        assertThat(response.getName()).isEqualTo("Cardiology"); // untouched
+    }
+
+    @Test
+    void patchDepartment_doesNotCheckDoctorAssignment_whenNameNotIncluded() {
+        existingDepartment.getDoctors().add(activeDoctor());
+        when(departmentRepository.findById("dept-1")).thenReturn(Optional.of(existingDepartment));
+        when(departmentRepository.save(any(Department.class))).thenAnswer(inv -> inv.getArgument(0));
+        amalitech.hospital.management.dto.doctor.PatchDepartmentRequest patch =
+                new amalitech.hospital.management.dto.doctor.PatchDepartmentRequest();
+        patch.setLocation("Building B");
+
+        // Must not throw, even though the department is still held by an active doctor —
+        // the guard only fires when name is actually being changed.
+        DepartmentResponse response = departmentService.patchDepartment("dept-1", patch);
+
+        assertThat(response.getLocation()).isEqualTo("Building B");
+    }
+
+    @Test
+    void patchDepartment_throwsConflict_whenStillAssignedToAnActiveDoctor_andNameIsBeingChanged() {
+        existingDepartment.getDoctors().add(activeDoctor());
+        when(departmentRepository.findById("dept-1")).thenReturn(Optional.of(existingDepartment));
+        amalitech.hospital.management.dto.doctor.PatchDepartmentRequest patch =
+                new amalitech.hospital.management.dto.doctor.PatchDepartmentRequest();
+        patch.setName("Cardiology Renamed");
+
+        assertThatThrownBy(() -> departmentService.patchDepartment("dept-1", patch))
+                .isInstanceOf(ConflictException.class);
+        verify(departmentRepository, never()).save(any());
+    }
+
+    @Test
+    void patchDepartment_throwsConflict_whenRenamedToExistingName() {
+        when(departmentRepository.findById("dept-1")).thenReturn(Optional.of(existingDepartment));
+        when(departmentRepository.existsByName("Oncology")).thenReturn(true);
+        amalitech.hospital.management.dto.doctor.PatchDepartmentRequest patch =
+                new amalitech.hospital.management.dto.doctor.PatchDepartmentRequest();
+        patch.setName("Oncology");
+
+        assertThatThrownBy(() -> departmentService.patchDepartment("dept-1", patch))
                 .isInstanceOf(ConflictException.class);
         verify(departmentRepository, never()).save(any());
     }
