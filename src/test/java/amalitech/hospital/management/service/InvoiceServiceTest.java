@@ -16,11 +16,14 @@ import amalitech.hospital.management.repository.patient.PatientRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PagedModel;
 
 import java.math.BigDecimal;
@@ -31,6 +34,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -75,7 +79,10 @@ class InvoiceServiceTest {
     @Test
     void getInvoices_returnsUnfilteredPage_whenPaymentStatusOmitted() {
         Page<Invoice> page = new PageImpl<>(List.of(existingInvoice), PageRequest.of(0, 20), 1);
-        when(invoiceRepository.findAll(PageRequest.of(0, 20))).thenReturn(page);
+        // any(Pageable.class), not the literal instance passed in below — getInvoices now
+        // applies a default sort (see PageableDefaults) when the caller sends none, so the
+        // Pageable that actually reaches the repository is a different (sorted) instance.
+        when(invoiceRepository.findAll(any(Pageable.class))).thenReturn(page);
 
         PagedModel<InvoiceResponse> result = invoiceService.getInvoices(PageRequest.of(0, 20), null);
 
@@ -86,12 +93,24 @@ class InvoiceServiceTest {
     @Test
     void getInvoices_filtersByValidatedPaymentStatus_whenProvided() {
         Page<Invoice> page = new PageImpl<>(List.of(existingInvoice), PageRequest.of(0, 20), 1);
-        when(invoiceRepository.findByPaymentStatus(PaymentStatus.UNPAID, PageRequest.of(0, 20))).thenReturn(page);
+        when(invoiceRepository.findByPaymentStatus(eq(PaymentStatus.UNPAID), any(Pageable.class))).thenReturn(page);
 
         PagedModel<InvoiceResponse> result = invoiceService.getInvoices(PageRequest.of(0, 20), "Unpaid");
 
         assertThat(result.getContent()).hasSize(1);
         assertThat(result.getContent().get(0).getPaymentStatus()).isEqualTo("unpaid");
+    }
+
+    @Test
+    void getInvoices_defaultsToIssuedAtDescending_whenCallerSendsNoSort() {
+        Page<Invoice> page = new PageImpl<>(List.of(existingInvoice), PageRequest.of(0, 20), 1);
+        when(invoiceRepository.findAll(any(Pageable.class))).thenReturn(page);
+        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
+
+        invoiceService.getInvoices(PageRequest.of(0, 20), null);
+
+        verify(invoiceRepository).findAll(captor.capture());
+        assertThat(captor.getValue().getSort()).isEqualTo(Sort.by(Sort.Direction.DESC, "issuedAt"));
     }
 
     @Test
@@ -228,6 +247,55 @@ class InvoiceServiceTest {
         InvoiceResponse response = invoiceService.updateInvoice("inv-1", request);
 
         assertThat(response.getPaymentStatus()).isEqualTo("paid");
+    }
+
+    // ── patchInvoice ─────────────────────────────────────────────────────────
+
+    @Test
+    void patchInvoice_changesOnlyPaymentStatus_whenOnlyPaymentStatusGiven() {
+        when(invoiceRepository.findById("inv-1")).thenReturn(Optional.of(existingInvoice));
+        when(invoiceRepository.save(any(Invoice.class))).thenAnswer(inv -> inv.getArgument(0));
+        amalitech.hospital.management.dto.finance.PatchInvoiceRequest patch =
+                new amalitech.hospital.management.dto.finance.PatchInvoiceRequest();
+        patch.setPaymentStatus("paid");
+
+        InvoiceResponse response = invoiceService.patchInvoice("inv-1", patch);
+
+        assertThat(response.getPaymentStatus()).isEqualTo("paid");
+        assertThat(response.getTotalAmount()).isEqualByComparingTo(new BigDecimal("100.00")); // untouched
+        verify(appointmentRepository, never()).findById(any());
+        verify(patientRepository, never()).findById(any());
+    }
+
+    @Test
+    void patchInvoice_leavesTotalAmountUntouched_whenOmitted() {
+        when(invoiceRepository.findById("inv-1")).thenReturn(Optional.of(existingInvoice));
+        when(invoiceRepository.save(any(Invoice.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        InvoiceResponse response = invoiceService.patchInvoice("inv-1",
+                new amalitech.hospital.management.dto.finance.PatchInvoiceRequest());
+
+        assertThat(response.getTotalAmount()).isEqualByComparingTo(new BigDecimal("100.00")); // not reset to zero
+    }
+
+    @Test
+    void patchInvoice_throwsBadRequest_whenPaymentStatusInvalid() {
+        when(invoiceRepository.findById("inv-1")).thenReturn(Optional.of(existingInvoice));
+        amalitech.hospital.management.dto.finance.PatchInvoiceRequest patch =
+                new amalitech.hospital.management.dto.finance.PatchInvoiceRequest();
+        patch.setPaymentStatus("bogus");
+
+        assertThatThrownBy(() -> invoiceService.patchInvoice("inv-1", patch))
+                .isInstanceOf(BadRequestException.class);
+    }
+
+    @Test
+    void patchInvoice_throwsNotFound_whenAbsent() {
+        when(invoiceRepository.findById("missing")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> invoiceService.patchInvoice("missing",
+                new amalitech.hospital.management.dto.finance.PatchInvoiceRequest()))
+                .isInstanceOf(NotFoundException.class);
     }
 
     @Test
