@@ -6,9 +6,11 @@ import amalitech.hospital.management.exception.runtime.BadRequestException;
 import amalitech.hospital.management.exception.runtime.NotFoundException;
 import amalitech.hospital.management.model.user.logs.SystemLog;
 import amalitech.hospital.management.repository.user.logs.SystemLogRepository;
+import amalitech.hospital.management.utils.PageableDefaults;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PagedModel;
 import org.springframework.stereotype.Service;
 
@@ -44,23 +46,27 @@ public class SystemLogService {
      * regardless of exact method name.
      */
     public PagedModel<SystemLogResponse> getSystemLogs(Pageable pageable, String logLevel, String source) {
+        // Defaults to createdAt DESC (matching this endpoint's own Swagger sort
+        // example) when the caller sends no ?sort= at all — covers all four
+        // branches below. See PageableDefaults' own Javadoc.
+        Pageable sorted = PageableDefaults.withDefaultSort(pageable, "createdAt", Sort.Direction.DESC);
         boolean hasLevel = logLevel != null && !logLevel.isBlank();
         boolean hasSource = source != null && !source.isBlank();
 
         if (hasLevel && hasSource) {
             String validated = validateLevel(logLevel);
             return new PagedModel<>(systemLogRepository
-                    .findByLogLevelAndSourceContainingIgnoreCase(validated, source, pageable).map(this::toResponse));
+                    .findByLogLevelAndSourceContainingIgnoreCase(validated, source, sorted).map(this::toResponse));
         }
         if (hasLevel) {
             String validated = validateLevel(logLevel);
-            return new PagedModel<>(systemLogRepository.findByLogLevel(validated, pageable).map(this::toResponse));
+            return new PagedModel<>(systemLogRepository.findByLogLevel(validated, sorted).map(this::toResponse));
         }
         if (hasSource) {
             return new PagedModel<>(
-                    systemLogRepository.findBySourceContainingIgnoreCase(source, pageable).map(this::toResponse));
+                    systemLogRepository.findBySourceContainingIgnoreCase(source, sorted).map(this::toResponse));
         }
-        return new PagedModel<>(systemLogRepository.findAll(pageable).map(this::toResponse));
+        return new PagedModel<>(systemLogRepository.findAll(sorted).map(this::toResponse));
     }
 
     @Cacheable(value = "systemLogs", key = "#logId")
