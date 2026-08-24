@@ -3,6 +3,7 @@ package amalitech.hospital.management.service;
 import amalitech.hospital.management.annotation.ApplyAlgorithm;
 import amalitech.hospital.management.annotation.FindUserData;
 import amalitech.hospital.management.annotation.SqlQueryBuilder;
+import amalitech.hospital.management.dto.user.role.PatchRoleRequest;
 import amalitech.hospital.management.dto.user.role.RolePermissionCountResponse;
 import amalitech.hospital.management.dto.user.role.RoleRequest;
 import amalitech.hospital.management.dto.user.role.RoleResponse;
@@ -17,6 +18,7 @@ import amalitech.hospital.management.repository.user.UserRoleRepository;
 import amalitech.hospital.management.repository.user.role.PermissionRepository;
 import amalitech.hospital.management.repository.user.role.RolePermissionRepository;
 import amalitech.hospital.management.repository.user.role.RoleRepository;
+import amalitech.hospital.management.utils.PageableDefaults;
 import amalitech.hospital.management.utils.filters.PagedRawResult;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.CacheEvict;
@@ -61,8 +63,13 @@ public class RoleService {
     @Lazy
     private final RoleService self;
 
+    // Defaults to roleName ASC (matching this endpoint's own Swagger sort example)
+    // when the caller sends no ?sort= at all — without this, an unsorted Pageable
+    // reaches Hibernate as no ORDER BY, so Postgres returns rows in an unspecified,
+    // not-guaranteed-stable-across-pages order. See PageableDefaults' own Javadoc.
     public PagedModel<RoleResponse> getRoles(Pageable pageable) {
-        return new PagedModel<>(roleRepository.findAll(pageable).map(this::toResponse));
+        Pageable sorted = PageableDefaults.withDefaultSort(pageable, "roleName", Sort.Direction.ASC);
+        return new PagedModel<>(roleRepository.findAll(sorted).map(this::toResponse));
     }
 
     /**
@@ -182,6 +189,33 @@ public class RoleService {
         }
         role.setRoleName(request.getRoleName());
         role.setDescription(request.getDescription());
+        role.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
+        return toResponse(roleRepository.save(role));
+    }
+
+    /**
+     * Partial-update counterpart to {@link #updateRole} — only touches a field when the
+     * request actually included it (see {@link PatchRoleRequest}'s own Javadoc for why
+     * it's a dedicated DTO rather than reusing {@link RoleRequest}). Same guards as
+     * {@code updateRole}, but only run when the field they guard is actually changing —
+     * e.g. a patch that only changes {@code description} never touches the
+     * still-assigned-to-users check {@code roleName} changes require.
+     */
+    @Transactional
+    @CachePut(value = "roles", key = "#roleId")
+    public RoleResponse patchRole(String roleId, PatchRoleRequest patch) {
+        Role role = findRoleOrThrow(roleId);
+        if (patch.getRoleName() != null) {
+            throwIfAssignedToAnyUser(roleId, "updated");
+            if (!role.getRoleName().equals(patch.getRoleName())
+                    && roleRepository.existsByRoleName(patch.getRoleName())) {
+                throw new ConflictException("Role '" + patch.getRoleName() + "' already exists");
+            }
+            role.setRoleName(patch.getRoleName());
+        }
+        if (patch.getDescription() != null) {
+            role.setDescription(patch.getDescription());
+        }
         role.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
         return toResponse(roleRepository.save(role));
     }
