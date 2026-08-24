@@ -11,11 +11,14 @@ import amalitech.hospital.management.repository.user.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PagedModel;
 
 import java.time.LocalDateTime;
@@ -61,7 +64,11 @@ class NotificationServiceTest {
     @Test
     void getNotifications_returnsUnfilteredPage_whenUnreadOmitted() {
         Page<Notification> page = new PageImpl<>(List.of(existingNotification), PageRequest.of(0, 20), 1);
-        when(notificationRepository.findAll(PageRequest.of(0, 20))).thenReturn(page);
+        // any(Pageable.class), not the literal instance passed in below —
+        // getNotifications now applies a default sort (see PageableDefaults) when the
+        // caller sends none, so the Pageable that actually reaches the repository is a
+        // different (sorted) instance.
+        when(notificationRepository.findAll(any(Pageable.class))).thenReturn(page);
 
         PagedModel<NotificationResponse> result = notificationService.getNotifications(PageRequest.of(0, 20), null);
 
@@ -73,7 +80,7 @@ class NotificationServiceTest {
     @Test
     void getNotifications_returnsOnlyUnread_whenUnreadTrue() {
         Page<Notification> page = new PageImpl<>(List.of(existingNotification), PageRequest.of(0, 20), 1);
-        when(notificationRepository.findByReadAtIsNull(PageRequest.of(0, 20))).thenReturn(page);
+        when(notificationRepository.findByReadAtIsNull(any(Pageable.class))).thenReturn(page);
 
         PagedModel<NotificationResponse> result = notificationService.getNotifications(PageRequest.of(0, 20), true);
 
@@ -84,12 +91,24 @@ class NotificationServiceTest {
     @Test
     void getNotifications_returnsOnlyRead_whenUnreadFalse() {
         Page<Notification> page = new PageImpl<>(List.of(existingNotification), PageRequest.of(0, 20), 1);
-        when(notificationRepository.findByReadAtIsNotNull(PageRequest.of(0, 20))).thenReturn(page);
+        when(notificationRepository.findByReadAtIsNotNull(any(Pageable.class))).thenReturn(page);
 
         PagedModel<NotificationResponse> result = notificationService.getNotifications(PageRequest.of(0, 20), false);
 
         assertThat(result.getContent()).hasSize(1);
         verify(notificationRepository, never()).findByReadAtIsNull(any());
+    }
+
+    @Test
+    void getNotifications_defaultsToCreatedAtDescending_whenCallerSendsNoSort() {
+        Page<Notification> page = new PageImpl<>(List.of(existingNotification), PageRequest.of(0, 20), 1);
+        when(notificationRepository.findAll(any(Pageable.class))).thenReturn(page);
+        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
+
+        notificationService.getNotifications(PageRequest.of(0, 20), null);
+
+        verify(notificationRepository).findAll(captor.capture());
+        assertThat(captor.getValue().getSort()).isEqualTo(Sort.by(Sort.Direction.DESC, "createdAt"));
     }
 
     @Test
@@ -234,6 +253,69 @@ class NotificationServiceTest {
         when(notificationRepository.findById("missing")).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> notificationService.markAsRead("missing"))
+                .isInstanceOf(NotFoundException.class);
+    }
+
+    // ── patchNotification ────────────────────────────────────────────────────
+
+    @Test
+    void patchNotification_changesOnlyPriority_whenOnlyPriorityGiven() {
+        when(notificationRepository.findById("notif-1")).thenReturn(Optional.of(existingNotification));
+        when(notificationRepository.save(any(Notification.class))).thenAnswer(inv -> inv.getArgument(0));
+        amalitech.hospital.management.dto.notification.PatchNotificationRequest patch =
+                new amalitech.hospital.management.dto.notification.PatchNotificationRequest();
+        patch.setPriority("high");
+
+        NotificationResponse response = notificationService.patchNotification("notif-1", patch);
+
+        assertThat(response.getPriority()).isEqualTo("high");
+        assertThat(response.getType()).isEqualTo("appointment-created"); // untouched
+        assertThat(response.getActorUserId()).isEqualTo("user-1"); // untouched
+        verify(userRepository, never()).findById(any());
+    }
+
+    @Test
+    void patchNotification_clearsActor_whenActorUserIdBlank() {
+        when(notificationRepository.findById("notif-1")).thenReturn(Optional.of(existingNotification));
+        when(notificationRepository.save(any(Notification.class))).thenAnswer(inv -> inv.getArgument(0));
+        amalitech.hospital.management.dto.notification.PatchNotificationRequest patch =
+                new amalitech.hospital.management.dto.notification.PatchNotificationRequest();
+        patch.setActorUserId("   ");
+
+        NotificationResponse response = notificationService.patchNotification("notif-1", patch);
+
+        assertThat(response.getActorUserId()).isNull();
+    }
+
+    @Test
+    void patchNotification_throwsNotFound_whenActorUserIdGivenButAbsent() {
+        when(notificationRepository.findById("notif-1")).thenReturn(Optional.of(existingNotification));
+        when(userRepository.findById("missing")).thenReturn(Optional.empty());
+        amalitech.hospital.management.dto.notification.PatchNotificationRequest patch =
+                new amalitech.hospital.management.dto.notification.PatchNotificationRequest();
+        patch.setActorUserId("missing");
+
+        assertThatThrownBy(() -> notificationService.patchNotification("notif-1", patch))
+                .isInstanceOf(NotFoundException.class);
+    }
+
+    @Test
+    void patchNotification_throwsBadRequest_whenPayloadIsNotValidJson() {
+        when(notificationRepository.findById("notif-1")).thenReturn(Optional.of(existingNotification));
+        amalitech.hospital.management.dto.notification.PatchNotificationRequest patch =
+                new amalitech.hospital.management.dto.notification.PatchNotificationRequest();
+        patch.setPayload("not-json{");
+
+        assertThatThrownBy(() -> notificationService.patchNotification("notif-1", patch))
+                .isInstanceOf(BadRequestException.class);
+    }
+
+    @Test
+    void patchNotification_throwsNotFound_whenAbsent() {
+        when(notificationRepository.findById("missing")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> notificationService.patchNotification("missing",
+                new amalitech.hospital.management.dto.notification.PatchNotificationRequest()))
                 .isInstanceOf(NotFoundException.class);
     }
 
