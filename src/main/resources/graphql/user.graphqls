@@ -42,12 +42,28 @@ input UserInput {
     password: String!
 }
 
+"""Partial-update counterpart to UserInput — every field optional; only the ones
+present in the request get changed. No password field — change a password
+exclusively through the auth change-password/reset-password mutations/endpoints."""
+input PatchUserInput {
+    username: String
+    email: String
+}
+
 input RoleInput {
     roleName: String!
     description: String
     """Optional, createRole only (ignored by updateRole) — grants each of these
     permissions to the new role in the same request."""
     permissionIds: [ID!]
+}
+
+"""Partial-update counterpart to RoleInput — every field optional; only the ones
+actually present in the request get changed, omitted fields are left untouched.
+No permissionIds — that's create-only on RoleInput too."""
+input PatchRoleInput {
+    roleName: String
+    description: String
 }
 
 extend type Query {
@@ -73,12 +89,14 @@ extend type Mutation {
     # same as POST /api/v1/users.
     createUser(input: AdminCreateUserInput!): User!
     updateUser(userId: ID!, input: UserInput!): User!
+    patchUser(userId: ID!, input: PatchUserInput!): User!
     deleteUser(userId: ID!): Boolean!
     assignRole(userId: ID!, roleId: ID!): User!
     revokeRole(userId: ID!, roleId: ID!): User!
 
     createRole(input: RoleInput!): Role!
     updateRole(roleId: ID!, input: RoleInput!): Role!
+    patchRole(roleId: ID!, input: PatchRoleInput!): Role!
     deleteRole(roleId: ID!): Boolean!
     grantPermission(roleId: ID!, permissionId: ID!): Role!
     revokePermission(roleId: ID!, permissionId: ID!): Role!
