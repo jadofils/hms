@@ -4,6 +4,7 @@ import amalitech.hospital.management.annotation.RequirePermission;
 import amalitech.hospital.management.dto.common.ApiResult;
 import amalitech.hospital.management.dto.pharmacy.MedicationRequest;
 import amalitech.hospital.management.dto.pharmacy.MedicationResponse;
+import amalitech.hospital.management.dto.pharmacy.PatchMedicationRequest;
 import amalitech.hospital.management.enums.PermissionAction;
 import amalitech.hospital.management.enums.Resource;
 import amalitech.hospital.management.service.MedicationService;
@@ -54,7 +55,8 @@ public class MedicationController {
     @RequirePermission(resource = Resource.MEDICATIONS, action = PermissionAction.READ)
     public ResponseEntity<ApiResult<PagedModel<MedicationResponse>>> getMedications(
             Pageable pageable,
-            @Parameter(description = "Filter to medications needing reorder across any of their own batches")
+            @Parameter(description = "Filter to medications needing reorder across any of their own batches",
+                    example = "true")
             @RequestParam(required = false) Boolean lowStock) {
         return ResponseEntity.ok(
                 ApiResult.of("Medications retrieved", medicationService.getMedications(pageable, lowStock)));
@@ -90,6 +92,20 @@ public class MedicationController {
             @Parameter(description = "Medication UUID") @PathVariable String medicationId,
             @Valid @RequestBody MedicationRequest request) {
         return ResponseEntity.ok(ApiResult.of("Medication updated", medicationService.updateMedication(medicationId, request)));
+    }
+
+    @PatchMapping("/{medicationId}")
+    @Operation(summary = "Partially update a medication",
+            description = "Unlike PUT, only the fields actually present in the request body are changed — "
+                    + "omitted fields are left exactly as they were.")
+    @ApiResponse(responseCode = "200", description = "Medication updated")
+    @ApiResponse(responseCode = "404", description = "Medication not found")
+    @ApiResponse(responseCode = "409", description = "Medication name already exists")
+    @RequirePermission(resource = Resource.MEDICATIONS, action = PermissionAction.UPDATE)
+    public ResponseEntity<ApiResult<MedicationResponse>> patchMedication(
+            @Parameter(description = "Medication UUID") @PathVariable String medicationId,
+            @Valid @RequestBody PatchMedicationRequest request) {
+        return ResponseEntity.ok(ApiResult.of("Medication updated", medicationService.patchMedication(medicationId, request)));
     }
 
     @DeleteMapping("/{medicationId}")
