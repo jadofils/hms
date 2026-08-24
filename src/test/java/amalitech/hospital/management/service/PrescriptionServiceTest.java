@@ -14,11 +14,13 @@ import amalitech.hospital.management.repository.pharmacy.PrescriptionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PagedModel;
 
 import java.time.LocalDate;
@@ -29,6 +31,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -87,13 +90,29 @@ class PrescriptionServiceTest {
 
     @Test
     void getPrescriptions_filtersByPatientId_whenGiven() {
-        Pageable pageable = PageRequest.of(0, 20);
-        when(prescriptionRepository.findByAppointment_Patient_PatientIdAndDeletedAtIsNull("patient-1", pageable))
+        // any(Pageable.class), not the literal instance passed in below — getPrescriptions
+        // now applies a default sort (see PageableDefaults) when the caller sends none,
+        // so the Pageable that actually reaches the repository is a different (sorted)
+        // instance than the one this test constructs.
+        when(prescriptionRepository.findByAppointment_Patient_PatientIdAndDeletedAtIsNull(eq("patient-1"), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(existingPrescription)));
 
-        PagedModel<PrescriptionResponse> result = prescriptionService.getPrescriptions(pageable, "patient-1");
+        PagedModel<PrescriptionResponse> result =
+                prescriptionService.getPrescriptions(PageRequest.of(0, 20), "patient-1");
 
         assertThat(result.getContent()).hasSize(1);
+    }
+
+    @Test
+    void getPrescriptions_defaultsToDateIssuedDescending_whenCallerSendsNoSort() {
+        when(prescriptionRepository.findAll(any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(existingPrescription)));
+        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
+
+        prescriptionService.getPrescriptions(PageRequest.of(0, 20), null);
+
+        verify(prescriptionRepository).findAll(captor.capture());
+        assertThat(captor.getValue().getSort()).isEqualTo(Sort.by(Sort.Direction.DESC, "dateIssued"));
     }
 
     @Test
@@ -207,6 +226,45 @@ class PrescriptionServiceTest {
         PrescriptionRequest request = requestFor("missing", null);
 
         assertThatThrownBy(() -> prescriptionService.updatePrescription("presc-1", request))
+                .isInstanceOf(NotFoundException.class);
+    }
+
+    // ── patchPrescription ───────────────────────────────────────────────────
+
+    @Test
+    void patchPrescription_changesOnlyDateIssued_whenOnlyDateIssuedGiven() {
+        when(prescriptionRepository.findById("presc-1")).thenReturn(Optional.of(existingPrescription));
+        when(prescriptionRepository.save(any(Prescription.class))).thenAnswer(inv -> inv.getArgument(0));
+        LocalDate newDate = LocalDate.of(2020, 1, 1);
+        amalitech.hospital.management.dto.pharmacy.PatchPrescriptionRequest patch =
+                new amalitech.hospital.management.dto.pharmacy.PatchPrescriptionRequest();
+        patch.setDateIssued(newDate);
+
+        PrescriptionResponse response = prescriptionService.patchPrescription("presc-1", patch);
+
+        assertThat(response.getDateIssued()).isEqualTo(newDate);
+        assertThat(response.getAppointmentId()).isEqualTo("appt-1"); // untouched
+        verify(appointmentRepository, never()).findById(any());
+    }
+
+    @Test
+    void patchPrescription_throwsNotFound_whenAppointmentIdGivenButAbsent() {
+        when(prescriptionRepository.findById("presc-1")).thenReturn(Optional.of(existingPrescription));
+        when(appointmentRepository.findById("missing")).thenReturn(Optional.empty());
+        amalitech.hospital.management.dto.pharmacy.PatchPrescriptionRequest patch =
+                new amalitech.hospital.management.dto.pharmacy.PatchPrescriptionRequest();
+        patch.setAppointmentId("missing");
+
+        assertThatThrownBy(() -> prescriptionService.patchPrescription("presc-1", patch))
+                .isInstanceOf(NotFoundException.class);
+    }
+
+    @Test
+    void patchPrescription_throwsNotFound_whenAbsent() {
+        when(prescriptionRepository.findById("missing")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> prescriptionService.patchPrescription("missing",
+                new amalitech.hospital.management.dto.pharmacy.PatchPrescriptionRequest()))
                 .isInstanceOf(NotFoundException.class);
     }
 
