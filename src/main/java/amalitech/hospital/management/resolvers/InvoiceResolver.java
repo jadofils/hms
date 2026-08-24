@@ -2,6 +2,7 @@ package amalitech.hospital.management.resolvers;
 
 import amalitech.hospital.management.dto.finance.InvoiceRequest;
 import amalitech.hospital.management.dto.finance.InvoiceResponse;
+import amalitech.hospital.management.dto.finance.PatchInvoiceRequest;
 import amalitech.hospital.management.dto.patient.AppointmentResponse;
 import amalitech.hospital.management.dto.patient.PatientResponse;
 import amalitech.hospital.management.service.AppointmentService;
@@ -53,6 +54,11 @@ public class InvoiceResolver {
     @MutationMapping
     public InvoiceResponse updateInvoice(@Argument String invoiceId, @Argument @Valid InvoiceRequest input) {
         return invoiceService.updateInvoice(invoiceId, input);
+    }
+
+    @MutationMapping
+    public InvoiceResponse patchInvoice(@Argument String invoiceId, @Argument @Valid PatchInvoiceRequest input) {
+        return invoiceService.patchInvoice(invoiceId, input);
     }
 
     @MutationMapping
