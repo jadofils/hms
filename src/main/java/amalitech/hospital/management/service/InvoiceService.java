@@ -3,6 +3,7 @@ package amalitech.hospital.management.service;
 import amalitech.hospital.management.aop.EventBus;
 import amalitech.hospital.management.dto.finance.InvoiceRequest;
 import amalitech.hospital.management.dto.finance.InvoiceResponse;
+import amalitech.hospital.management.dto.finance.PatchInvoiceRequest;
 import amalitech.hospital.management.enums.PaymentStatus;
 import amalitech.hospital.management.event.InvoiceCreatedEvent;
 import amalitech.hospital.management.exception.runtime.BadRequestException;
@@ -13,11 +14,13 @@ import amalitech.hospital.management.model.patient.Patient;
 import amalitech.hospital.management.repository.finance.InvoiceRepository;
 import amalitech.hospital.management.repository.patient.AppointmentRepository;
 import amalitech.hospital.management.repository.patient.PatientRepository;
+import amalitech.hospital.management.utils.PageableDefaults;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.CachePut;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PagedModel;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -50,11 +53,14 @@ public class InvoiceService {
      * already rely on for their own status filters.
      */
     public PagedModel<InvoiceResponse> getInvoices(Pageable pageable, String paymentStatus) {
+        // Defaults to issuedAt DESC (matching this endpoint's own Swagger sort example)
+        // when the caller sends no ?sort= at all — see PageableDefaults' own Javadoc.
+        Pageable sorted = PageableDefaults.withDefaultSort(pageable, "issuedAt", Sort.Direction.DESC);
         if (paymentStatus == null || paymentStatus.isBlank()) {
-            return new PagedModel<>(invoiceRepository.findAll(pageable).map(this::toResponse));
+            return new PagedModel<>(invoiceRepository.findAll(sorted).map(this::toResponse));
         }
         PaymentStatus validated = validateStatus(paymentStatus);
-        return new PagedModel<>(invoiceRepository.findByPaymentStatus(validated, pageable).map(this::toResponse));
+        return new PagedModel<>(invoiceRepository.findByPaymentStatus(validated, sorted).map(this::toResponse));
     }
 
     @Cacheable(value = "invoices", key = "#invoiceId")
@@ -93,6 +99,32 @@ public class InvoiceService {
         invoice.setTotalAmount(request.getTotalAmount() == null ? BigDecimal.ZERO : request.getTotalAmount());
         if (request.getPaymentStatus() != null && !request.getPaymentStatus().isBlank()) {
             invoice.setPaymentStatus(validateStatus(request.getPaymentStatus()));
+        }
+        invoice.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
+        return toResponse(invoiceRepository.save(invoice));
+    }
+
+    /**
+     * Partial-update counterpart to {@link #updateInvoice} — only the fields actually
+     * present in {@code patch} are changed; everything else on the existing invoice is
+     * left untouched (unlike {@code updateInvoice}, an omitted {@code totalAmount}
+     * here is left as-is rather than reset to zero).
+     */
+    @Transactional
+    @CachePut(value = "invoices", key = "#invoiceId")
+    public InvoiceResponse patchInvoice(String invoiceId, PatchInvoiceRequest patch) {
+        Invoice invoice = findInvoiceOrThrow(invoiceId);
+        if (patch.getAppointmentId() != null) {
+            invoice.setAppointment(findAppointmentOrThrow(patch.getAppointmentId()));
+        }
+        if (patch.getPatientId() != null) {
+            invoice.setPatient(findPatientOrThrow(patch.getPatientId()));
+        }
+        if (patch.getTotalAmount() != null) {
+            invoice.setTotalAmount(patch.getTotalAmount());
+        }
+        if (patch.getPaymentStatus() != null && !patch.getPaymentStatus().isBlank()) {
+            invoice.setPaymentStatus(validateStatus(patch.getPaymentStatus()));
         }
         invoice.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
         return toResponse(invoiceRepository.save(invoice));
