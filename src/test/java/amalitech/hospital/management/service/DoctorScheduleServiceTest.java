@@ -138,6 +138,68 @@ class DoctorScheduleServiceTest {
         assertThat(existingSchedule.getStartTime()).isEqualTo(LocalTime.of(10, 0));
     }
 
+    // ── patchSchedule ────────────────────────────────────────────────────────
+
+    @Test
+    void patchSchedule_changesOnlyIsAvailable_whenOnlyIsAvailableGiven() {
+        when(doctorScheduleRepository.findById("schedule-1")).thenReturn(Optional.of(existingSchedule));
+        when(doctorScheduleRepository.save(any(DoctorSchedule.class))).thenAnswer(inv -> inv.getArgument(0));
+        amalitech.hospital.management.dto.doctor.PatchDoctorScheduleRequest patch =
+                new amalitech.hospital.management.dto.doctor.PatchDoctorScheduleRequest();
+        patch.setIsAvailable(false);
+
+        DoctorScheduleResponse response = scheduleService.patchSchedule("doctor-1", "schedule-1", patch);
+
+        assertThat(response.getIsAvailable()).isFalse();
+        assertThat(response.getDayOfWeek()).isEqualTo("Mon"); // untouched
+        assertThat(existingSchedule.getStartTime()).isEqualTo(LocalTime.of(9, 0)); // untouched
+    }
+
+    @Test
+    void patchSchedule_validatesRangeAgainstExistingEndTime_whenOnlyStartTimeGiven() {
+        when(doctorScheduleRepository.findById("schedule-1")).thenReturn(Optional.of(existingSchedule));
+        amalitech.hospital.management.dto.doctor.PatchDoctorScheduleRequest patch =
+                new amalitech.hospital.management.dto.doctor.PatchDoctorScheduleRequest();
+        patch.setStartTime(LocalTime.of(18, 0)); // existing endTime is 17:00 — now after it
+
+        assertThatThrownBy(() -> scheduleService.patchSchedule("doctor-1", "schedule-1", patch))
+                .isInstanceOf(BadRequestException.class);
+    }
+
+    @Test
+    void patchSchedule_allowsConsistentOneSidedChange_whenNewStartStillBeforeExistingEnd() {
+        when(doctorScheduleRepository.findById("schedule-1")).thenReturn(Optional.of(existingSchedule));
+        when(doctorScheduleRepository.save(any(DoctorSchedule.class))).thenAnswer(inv -> inv.getArgument(0));
+        amalitech.hospital.management.dto.doctor.PatchDoctorScheduleRequest patch =
+                new amalitech.hospital.management.dto.doctor.PatchDoctorScheduleRequest();
+        patch.setStartTime(LocalTime.of(10, 0)); // existing endTime is 17:00 — still valid
+
+        DoctorScheduleResponse response = scheduleService.patchSchedule("doctor-1", "schedule-1", patch);
+
+        assertThat(response.getStartTime()).isEqualTo(LocalTime.of(10, 0));
+        assertThat(response.getEndTime()).isEqualTo(LocalTime.of(17, 0));
+    }
+
+    @Test
+    void patchSchedule_throwsBadRequest_whenDayInvalid() {
+        when(doctorScheduleRepository.findById("schedule-1")).thenReturn(Optional.of(existingSchedule));
+        amalitech.hospital.management.dto.doctor.PatchDoctorScheduleRequest patch =
+                new amalitech.hospital.management.dto.doctor.PatchDoctorScheduleRequest();
+        patch.setDayOfWeek("Bogusday");
+
+        assertThatThrownBy(() -> scheduleService.patchSchedule("doctor-1", "schedule-1", patch))
+                .isInstanceOf(BadRequestException.class);
+    }
+
+    @Test
+    void patchSchedule_throwsNotFound_whenScheduleBelongsToDifferentDoctor() {
+        when(doctorScheduleRepository.findById("schedule-1")).thenReturn(Optional.of(existingSchedule));
+
+        assertThatThrownBy(() -> scheduleService.patchSchedule("other-doctor", "schedule-1",
+                new amalitech.hospital.management.dto.doctor.PatchDoctorScheduleRequest()))
+                .isInstanceOf(NotFoundException.class);
+    }
+
     @Test
     void deleteSchedule_setsDeletedAt() {
         when(doctorScheduleRepository.findById("schedule-1")).thenReturn(Optional.of(existingSchedule));
