@@ -1,6 +1,7 @@
 package amalitech.hospital.management.resolvers;
 
 import amalitech.hospital.management.dto.pharmacy.MedicationResponse;
+import amalitech.hospital.management.dto.pharmacy.PatchPrescriptionItemRequest;
 import amalitech.hospital.management.dto.pharmacy.PrescriptionItemRequest;
 import amalitech.hospital.management.dto.pharmacy.PrescriptionItemResponse;
 import amalitech.hospital.management.service.MedicationService;
@@ -44,6 +45,12 @@ public class PrescriptionItemResolver {
     public PrescriptionItemResponse updatePrescriptionItem(@Argument String prescriptionId, @Argument String itemId,
             @Argument @Valid PrescriptionItemRequest input) {
         return prescriptionItemService.updateItem(prescriptionId, itemId, input);
+    }
+
+    @MutationMapping
+    public PrescriptionItemResponse patchPrescriptionItem(@Argument String prescriptionId, @Argument String itemId,
+            @Argument @Valid PatchPrescriptionItemRequest input) {
+        return prescriptionItemService.patchItem(prescriptionId, itemId, input);
     }
 
     @MutationMapping
