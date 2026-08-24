@@ -2,6 +2,7 @@ package amalitech.hospital.management.controller;
 
 import amalitech.hospital.management.annotation.RequirePermission;
 import amalitech.hospital.management.dto.common.ApiResult;
+import amalitech.hospital.management.dto.user.role.PatchRoleRequest;
 import amalitech.hospital.management.dto.user.role.RolePermissionCountResponse;
 import amalitech.hospital.management.dto.user.role.RoleRequest;
 import amalitech.hospital.management.dto.user.role.RoleResponse;
@@ -103,6 +104,24 @@ public class RoleController {
             @Parameter(description = "Role UUID") @PathVariable String roleId,
             @Valid @RequestBody RoleRequest request) {
         return ResponseEntity.ok(ApiResult.of("Role updated", roleService.updateRole(roleId, request)));
+    }
+
+    @PatchMapping("/{roleId}")
+    @Operation(summary = "Partially update a role",
+            description = "Unlike PUT, only the fields actually present in the request body are changed — "
+                    + "omitted fields are left exactly as they were. Blocked while the role is still actively "
+                    + "held by any user, but only when roleName is included (a patch that only changes "
+                    + "description never triggers that check).")
+    @ApiResponse(responseCode = "200", description = "Role updated")
+    @ApiResponse(responseCode = "404", description = "Role not found")
+    @ApiResponse(responseCode = "409",
+            description = "Role name already exists, or the role is still assigned to one or more users")
+    @PreAuthorize("@permissionCheck.has('roles', 'update')")
+    @RequirePermission(resource = Resource.ROLES, action = PermissionAction.UPDATE)
+    public ResponseEntity<ApiResult<RoleResponse>> patchRole(
+            @Parameter(description = "Role UUID") @PathVariable String roleId,
+            @Valid @RequestBody PatchRoleRequest request) {
+        return ResponseEntity.ok(ApiResult.of("Role updated", roleService.patchRole(roleId, request)));
     }
 
     @DeleteMapping("/{roleId}")
