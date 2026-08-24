@@ -67,6 +67,18 @@ class PermissionServiceTest {
     }
 
     @Test
+    void getPermissions_defaultsToResourceAscending_whenCallerSendsNoSort() {
+        Page<Permission> page = new PageImpl<>(List.of(existingPermission), PageRequest.of(0, 20), 1);
+        when(permissionRepository.findAll(any(Pageable.class))).thenReturn(page);
+        org.mockito.ArgumentCaptor<Pageable> captor = org.mockito.ArgumentCaptor.forClass(Pageable.class);
+
+        permissionService.getPermissions(PageRequest.of(0, 20));
+
+        verify(permissionRepository).findAll(captor.capture());
+        assertThat(captor.getValue().getSort()).isEqualTo(Sort.by(Sort.Direction.ASC, "resource"));
+    }
+
+    @Test
     void getPermission_returnsMappedResponse() {
         when(permissionRepository.findById("perm-1")).thenReturn(Optional.of(existingPermission));
 
