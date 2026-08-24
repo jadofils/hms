@@ -1,6 +1,7 @@
 package amalitech.hospital.management.resolvers;
 
 import amalitech.hospital.management.config.graphql.GraphQlConfig;
+import amalitech.hospital.management.dto.user.role.PatchRoleRequest;
 import amalitech.hospital.management.dto.user.role.RoleResponse;
 import amalitech.hospital.management.dto.user.role.permission.PermissionResponse;
 import amalitech.hospital.management.service.RoleService;
@@ -15,6 +16,7 @@ import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -75,6 +77,22 @@ class RoleResolverTest {
                 .path("createRole.roleId").entity(String.class).isEqualTo("role-1");
 
         verify(roleService).createRole(argThat(request -> request.getPermissionIds().equals(List.of("perm-1", "perm-2"))));
+    }
+
+    @Test
+    void patchRole_passesOnlyTheGivenFieldThrough() {
+        RoleResponse patched = existingRole();
+        patched.setDescription("Patched via GraphQL");
+        when(roleService.patchRole(eq("role-1"), any(PatchRoleRequest.class))).thenReturn(patched);
+
+        graphQlTester.document(
+                        "mutation { patchRole(roleId: \"role-1\", input: { description: \"Patched via GraphQL\" }) "
+                                + "{ roleId description } }")
+                .execute()
+                .path("patchRole.description").entity(String.class).isEqualTo("Patched via GraphQL");
+
+        verify(roleService).patchRole(eq("role-1"), argThat(patch ->
+                patch.getDescription().equals("Patched via GraphQL") && patch.getRoleName() == null));
     }
 
     @Test
