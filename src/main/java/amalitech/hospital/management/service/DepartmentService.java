@@ -3,6 +3,7 @@ package amalitech.hospital.management.service;
 import amalitech.hospital.management.annotation.SqlQueryBuilder;
 import amalitech.hospital.management.dto.doctor.DepartmentDoctorCountResponse;
 import amalitech.hospital.management.dto.doctor.DepartmentRequest;
+import amalitech.hospital.management.dto.doctor.PatchDepartmentRequest;
 import amalitech.hospital.management.dto.doctor.DepartmentResponse;
 import amalitech.hospital.management.dto.doctor.DoctorResponse;
 import amalitech.hospital.management.exception.runtime.ConflictException;
@@ -10,12 +11,14 @@ import amalitech.hospital.management.exception.runtime.NotFoundException;
 import amalitech.hospital.management.model.doctor.Department;
 import amalitech.hospital.management.model.doctor.Doctor;
 import amalitech.hospital.management.repository.doctor.DepartmentRepository;
+import amalitech.hospital.management.utils.PageableDefaults;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.CachePut;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PagedModel;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -45,8 +48,11 @@ public class DepartmentService {
     @Lazy
     private final DepartmentService self;
 
+    // Defaults to name ASC (matching this endpoint's own Swagger sort example) when
+    // the caller sends no ?sort= at all — see PageableDefaults' own Javadoc.
     public PagedModel<DepartmentResponse> getDepartments(Pageable pageable) {
-        return new PagedModel<>(departmentRepository.findAll(pageable).map(this::toResponse));
+        Pageable sorted = PageableDefaults.withDefaultSort(pageable, "name", Sort.Direction.ASC);
+        return new PagedModel<>(departmentRepository.findAll(sorted).map(this::toResponse));
     }
 
     /**
@@ -127,6 +133,40 @@ public class DepartmentService {
         department.setName(request.getName());
         department.setLocation(request.getLocation());
         department.setPhone(request.getPhone());
+        department.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
+        return toResponse(departmentRepository.save(department));
+    }
+
+    /**
+     * Partial-update counterpart to {@link #updateDepartment} — only touches a field
+     * when the request actually included it. The still-held-by-a-doctor guard only
+     * fires when {@code name} is being changed — the same "only guard what's actually
+     * changing" reasoning {@code RoleService.patchRole} uses, since renaming an
+     * in-use department is the risky case, not touching its phone/location.
+     */
+    @Transactional
+    @CachePut(value = "departments", key = "#departmentId")
+    public DepartmentResponse patchDepartment(String departmentId, PatchDepartmentRequest patch) {
+        Department department = findDepartmentOrThrow(departmentId);
+
+        if (patch.getName() != null) {
+            throwIfHeldByAnyDoctor(department, "updated");
+            if (!department.getName().equals(patch.getName())
+                    && departmentRepository.existsByName(patch.getName())) {
+                throw new ConflictException("Department '" + patch.getName() + "' already exists");
+            }
+            department.setName(patch.getName());
+        }
+        if (patch.getLocation() != null) {
+            department.setLocation(patch.getLocation());
+        }
+        if (patch.getPhone() != null) {
+            if (!patch.getPhone().equals(department.getPhone())
+                    && departmentRepository.existsByPhone(patch.getPhone())) {
+                throw new ConflictException("Phone '" + patch.getPhone() + "' is already registered");
+            }
+            department.setPhone(patch.getPhone());
+        }
         department.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
         return toResponse(departmentRepository.save(department));
     }
