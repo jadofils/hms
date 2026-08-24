@@ -24,6 +24,19 @@ input PatientInput {
     status: String
 }
 
+"""Partial-update counterpart to PatientInput — every field optional; only the ones
+present in the request get changed."""
+input PatchPatientInput {
+    firstName: String
+    lastName: String
+    dob: Date
+    gender: String
+    phone: String
+    email: String
+    address: String
+    status: String
+}
+
 extend type Query {
     """Sortable columns: patientId, firstName, lastName, dob, gender, phone, email,
     address, status. `sort` uses the same "property,direction" format REST's own
@@ -39,5 +52,6 @@ extend type Query {
 extend type Mutation {
     createPatient(input: PatientInput!): Patient!
     updatePatient(patientId: ID!, input: PatientInput!): Patient!
+    patchPatient(patientId: ID!, input: PatchPatientInput!): Patient!
     deletePatient(patientId: ID!): Boolean!
 }
