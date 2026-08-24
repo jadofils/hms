@@ -151,6 +151,44 @@ class PrescriptionItemServiceTest {
         assertThat(response.getQuantity()).isEqualTo(20);
     }
 
+    // ── patchItem ────────────────────────────────────────────────────────────
+
+    @Test
+    void patchItem_changesOnlyDosage_whenOnlyDosageGiven() {
+        when(prescriptionItemRepository.findById("item-1")).thenReturn(Optional.of(existingItem));
+        when(prescriptionItemRepository.save(any(PrescriptionItem.class))).thenAnswer(inv -> inv.getArgument(0));
+        amalitech.hospital.management.dto.pharmacy.PatchPrescriptionItemRequest patch =
+                new amalitech.hospital.management.dto.pharmacy.PatchPrescriptionItemRequest();
+        patch.setDosage("1000mg");
+
+        PrescriptionItemResponse response = prescriptionItemService.patchItem("presc-1", "item-1", patch);
+
+        assertThat(response.getDosage()).isEqualTo("1000mg");
+        assertThat(response.getQuantity()).isEqualTo(10); // untouched
+        assertThat(response.getMedicationId()).isEqualTo("med-1"); // untouched
+    }
+
+    @Test
+    void patchItem_throwsNotFound_whenItemBelongsToDifferentPrescription() {
+        when(prescriptionItemRepository.findById("item-1")).thenReturn(Optional.of(existingItem));
+
+        assertThatThrownBy(() -> prescriptionItemService.patchItem("other-presc", "item-1",
+                new amalitech.hospital.management.dto.pharmacy.PatchPrescriptionItemRequest()))
+                .isInstanceOf(NotFoundException.class);
+    }
+
+    @Test
+    void patchItem_throwsNotFound_whenMedicationIdGivenButAbsent() {
+        when(prescriptionItemRepository.findById("item-1")).thenReturn(Optional.of(existingItem));
+        when(medicationRepository.findById("missing")).thenReturn(Optional.empty());
+        amalitech.hospital.management.dto.pharmacy.PatchPrescriptionItemRequest patch =
+                new amalitech.hospital.management.dto.pharmacy.PatchPrescriptionItemRequest();
+        patch.setMedicationId("missing");
+
+        assertThatThrownBy(() -> prescriptionItemService.patchItem("presc-1", "item-1", patch))
+                .isInstanceOf(NotFoundException.class);
+    }
+
     @Test
     void deleteItem_setsDeletedAt() {
         when(prescriptionItemRepository.findById("item-1")).thenReturn(Optional.of(existingItem));
