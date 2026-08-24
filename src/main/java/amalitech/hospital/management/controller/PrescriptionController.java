@@ -2,6 +2,7 @@ package amalitech.hospital.management.controller;
 
 import amalitech.hospital.management.annotation.RequirePermission;
 import amalitech.hospital.management.dto.common.ApiResult;
+import amalitech.hospital.management.dto.pharmacy.PatchPrescriptionRequest;
 import amalitech.hospital.management.dto.pharmacy.PrescriptionRequest;
 import amalitech.hospital.management.dto.pharmacy.PrescriptionResponse;
 import amalitech.hospital.management.enums.PermissionAction;
@@ -53,7 +54,8 @@ public class PrescriptionController {
     @RequirePermission(resource = Resource.PRESCRIPTIONS, action = PermissionAction.READ)
     public ResponseEntity<ApiResult<PagedModel<PrescriptionResponse>>> getPrescriptions(
             Pageable pageable,
-            @Parameter(description = "Filter to one patient's own prescription history")
+            @Parameter(description = "Filter to one patient's own prescription history",
+                    example = "3fa85f64-5717-4562-b3fc-2c963f66afa6")
             @RequestParam(required = false) String patientId) {
         return ResponseEntity.ok(
                 ApiResult.of("Prescriptions retrieved", prescriptionService.getPrescriptions(pageable, patientId)));
@@ -90,6 +92,21 @@ public class PrescriptionController {
             @Valid @RequestBody PrescriptionRequest request) {
         return ResponseEntity.ok(ApiResult.of("Prescription updated",
                 prescriptionService.updatePrescription(prescriptionId, request)));
+    }
+
+    @PatchMapping("/{prescriptionId}")
+    @Operation(summary = "Partially update a prescription",
+            description = "Unlike PUT — which overwrites every field with whatever the request carries — "
+                    + "only the fields actually present in the request body are changed here; omitted "
+                    + "fields are left exactly as they were.")
+    @ApiResponse(responseCode = "200", description = "Prescription updated")
+    @ApiResponse(responseCode = "404", description = "Prescription or appointment not found")
+    @RequirePermission(resource = Resource.PRESCRIPTIONS, action = PermissionAction.UPDATE)
+    public ResponseEntity<ApiResult<PrescriptionResponse>> patchPrescription(
+            @Parameter(description = "Prescription UUID") @PathVariable String prescriptionId,
+            @Valid @RequestBody PatchPrescriptionRequest request) {
+        return ResponseEntity.ok(ApiResult.of("Prescription updated",
+                prescriptionService.patchPrescription(prescriptionId, request)));
     }
 
     @DeleteMapping("/{prescriptionId}")
