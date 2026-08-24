@@ -3,6 +3,7 @@ package amalitech.hospital.management.resolvers;
 import amalitech.hospital.management.dto.pharmacy.MedicalInventoryRequest;
 import amalitech.hospital.management.dto.pharmacy.MedicalInventoryResponse;
 import amalitech.hospital.management.dto.pharmacy.MedicationResponse;
+import amalitech.hospital.management.dto.pharmacy.PatchMedicalInventoryRequest;
 import amalitech.hospital.management.service.MedicalInventoryService;
 import amalitech.hospital.management.service.MedicationService;
 import jakarta.validation.Valid;
@@ -51,6 +52,11 @@ public class MedicalInventoryResolver {
     @MutationMapping
     public MedicalInventoryResponse updateInventoryRecord(@Argument String inventoryId, @Argument @Valid MedicalInventoryRequest input) {
         return medicalInventoryService.updateInventoryRecord(inventoryId, input);
+    }
+
+    @MutationMapping
+    public MedicalInventoryResponse patchInventoryRecord(@Argument String inventoryId, @Argument @Valid PatchMedicalInventoryRequest input) {
+        return medicalInventoryService.patchInventoryRecord(inventoryId, input);
     }
 
     @MutationMapping
