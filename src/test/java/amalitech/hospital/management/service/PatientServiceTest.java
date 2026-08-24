@@ -439,6 +439,71 @@ class PatientServiceTest {
         assertThat(existingPatient.getEmail()).isEqualTo("carol@example.com");
     }
 
+    // ── patchPatient ─────────────────────────────────────────────────────────
+
+    @Test
+    void patchPatient_changesOnlyStatus_whenOnlyStatusGiven() {
+        when(patientRepository.findById("patient-1")).thenReturn(Optional.of(existingPatient));
+        when(patientRepository.save(any(Patient.class))).thenAnswer(inv -> inv.getArgument(0));
+        amalitech.hospital.management.dto.patient.PatchPatientRequest patch =
+                new amalitech.hospital.management.dto.patient.PatchPatientRequest();
+        patch.setStatus("inactive");
+
+        PatientResponse response = patientService.patchPatient("patient-1", patch);
+
+        assertThat(response.getStatus()).isEqualTo("inactive");
+        assertThat(response.getFirstName()).isEqualTo("Alice"); // untouched
+        assertThat(response.getEmail()).isEqualTo("alice@example.com"); // untouched
+        verify(patientRepository, never()).existsByEmail(anyString());
+        verify(patientRepository, never()).existsByPhone(anyString());
+    }
+
+    @Test
+    void patchPatient_throwsConflict_whenEmailChangedToExistingOne() {
+        when(patientRepository.findById("patient-1")).thenReturn(Optional.of(existingPatient));
+        when(patientRepository.existsByEmail("carol@example.com")).thenReturn(true);
+        amalitech.hospital.management.dto.patient.PatchPatientRequest patch =
+                new amalitech.hospital.management.dto.patient.PatchPatientRequest();
+        patch.setEmail("carol@example.com");
+
+        assertThatThrownBy(() -> patientService.patchPatient("patient-1", patch))
+                .isInstanceOf(ConflictException.class);
+        verify(patientRepository, never()).save(any());
+    }
+
+    @Test
+    void patchPatient_throwsConflict_whenPhoneChangedToExistingOne() {
+        when(patientRepository.findById("patient-1")).thenReturn(Optional.of(existingPatient));
+        when(patientRepository.existsByPhone("9998887")).thenReturn(true);
+        amalitech.hospital.management.dto.patient.PatchPatientRequest patch =
+                new amalitech.hospital.management.dto.patient.PatchPatientRequest();
+        patch.setPhone("9998887");
+
+        assertThatThrownBy(() -> patientService.patchPatient("patient-1", patch))
+                .isInstanceOf(ConflictException.class);
+        verify(patientRepository, never()).save(any());
+    }
+
+    @Test
+    void patchPatient_throwsBadRequest_whenGenderInvalid() {
+        when(patientRepository.findById("patient-1")).thenReturn(Optional.of(existingPatient));
+        amalitech.hospital.management.dto.patient.PatchPatientRequest patch =
+                new amalitech.hospital.management.dto.patient.PatchPatientRequest();
+        patch.setGender("bogus");
+
+        assertThatThrownBy(() -> patientService.patchPatient("patient-1", patch))
+                .isInstanceOf(BadRequestException.class);
+    }
+
+    @Test
+    void patchPatient_throwsNotFound_whenAbsent() {
+        when(patientRepository.findById("missing")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> patientService.patchPatient("missing",
+                new amalitech.hospital.management.dto.patient.PatchPatientRequest()))
+                .isInstanceOf(NotFoundException.class);
+    }
+
     // ── deletePatient ────────────────────────────────────────────────────────
 
     @Test
