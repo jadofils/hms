@@ -10,11 +10,13 @@ import amalitech.hospital.management.repository.pharmacy.MedicationRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PagedModel;
 
 import java.time.LocalDate;
@@ -25,6 +27,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -71,12 +74,15 @@ class MedicalInventoryServiceTest {
 
     @Test
     void getInventoryRecords_filtersByLowStock_whenLowStockTrue() {
-        Pageable pageable = PageRequest.of(0, 20);
-        when(medicalInventoryRepository.findLowStock(pageable))
+        // any(Pageable.class), not the literal instance passed in below —
+        // getInventoryRecords now applies a default sort (see PageableDefaults) when
+        // the caller sends none, so the Pageable that actually reaches the repository
+        // is a different (sorted) instance.
+        when(medicalInventoryRepository.findLowStock(any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(existingInventory)));
 
         PagedModel<MedicalInventoryResponse> result =
-                medicalInventoryService.getInventoryRecords(pageable, "med-1", true);
+                medicalInventoryService.getInventoryRecords(PageRequest.of(0, 20), "med-1", true);
 
         // lowStock=true wins even though medicationId was also given.
         assertThat(result.getContent()).hasSize(1);
@@ -85,14 +91,25 @@ class MedicalInventoryServiceTest {
 
     @Test
     void getInventoryRecords_filtersByMedicationId_whenOnlyMedicationIdGiven() {
-        Pageable pageable = PageRequest.of(0, 20);
-        when(medicalInventoryRepository.findByMedication_MedicationIdAndDeletedAtIsNull("med-1", pageable))
+        when(medicalInventoryRepository.findByMedication_MedicationIdAndDeletedAtIsNull(eq("med-1"), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(existingInventory)));
 
         PagedModel<MedicalInventoryResponse> result =
-                medicalInventoryService.getInventoryRecords(pageable, "med-1", null);
+                medicalInventoryService.getInventoryRecords(PageRequest.of(0, 20), "med-1", null);
 
         assertThat(result.getContent()).hasSize(1);
+    }
+
+    @Test
+    void getInventoryRecords_defaultsToExpiryDateAscending_whenCallerSendsNoSort() {
+        when(medicalInventoryRepository.findAll(any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(existingInventory)));
+        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
+
+        medicalInventoryService.getInventoryRecords(PageRequest.of(0, 20), null, null);
+
+        verify(medicalInventoryRepository).findAll(captor.capture());
+        assertThat(captor.getValue().getSort()).isEqualTo(Sort.by(Sort.Direction.ASC, "expiryDate"));
     }
 
     @Test
@@ -174,6 +191,45 @@ class MedicalInventoryServiceTest {
         MedicalInventoryResponse response = medicalInventoryService.updateInventoryRecord("inv-1", request);
 
         assertThat(response.getQuantityInStock()).isEqualTo(99);
+    }
+
+    // ── patchInventoryRecord ─────────────────────────────────────────────────
+
+    @Test
+    void patchInventoryRecord_changesOnlyQuantity_whenOnlyQuantityGiven() {
+        when(medicalInventoryRepository.findById("inv-1")).thenReturn(Optional.of(existingInventory));
+        when(medicalInventoryRepository.save(any(MedicalInventory.class))).thenAnswer(inv -> inv.getArgument(0));
+        amalitech.hospital.management.dto.pharmacy.PatchMedicalInventoryRequest patch =
+                new amalitech.hospital.management.dto.pharmacy.PatchMedicalInventoryRequest();
+        patch.setQuantityInStock(99);
+
+        MedicalInventoryResponse response = medicalInventoryService.patchInventoryRecord("inv-1", patch);
+
+        assertThat(response.getQuantityInStock()).isEqualTo(99);
+        assertThat(response.getReorderLevel()).isEqualTo(5); // untouched, not reset to the create-time default
+        assertThat(response.getBatchNumber()).isEqualTo("B1"); // untouched
+        verify(medicationRepository, never()).findById(any());
+    }
+
+    @Test
+    void patchInventoryRecord_throwsNotFound_whenMedicationIdGivenButAbsent() {
+        when(medicalInventoryRepository.findById("inv-1")).thenReturn(Optional.of(existingInventory));
+        when(medicationRepository.findById("missing")).thenReturn(Optional.empty());
+        amalitech.hospital.management.dto.pharmacy.PatchMedicalInventoryRequest patch =
+                new amalitech.hospital.management.dto.pharmacy.PatchMedicalInventoryRequest();
+        patch.setMedicationId("missing");
+
+        assertThatThrownBy(() -> medicalInventoryService.patchInventoryRecord("inv-1", patch))
+                .isInstanceOf(NotFoundException.class);
+    }
+
+    @Test
+    void patchInventoryRecord_throwsNotFound_whenAbsent() {
+        when(medicalInventoryRepository.findById("missing")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> medicalInventoryService.patchInventoryRecord("missing",
+                new amalitech.hospital.management.dto.pharmacy.PatchMedicalInventoryRequest()))
+                .isInstanceOf(NotFoundException.class);
     }
 
     @Test
