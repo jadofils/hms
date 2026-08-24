@@ -2,6 +2,7 @@ package amalitech.hospital.management.service;
 
 import amalitech.hospital.management.dto.doctor.DoctorScheduleRequest;
 import amalitech.hospital.management.dto.doctor.DoctorScheduleResponse;
+import amalitech.hospital.management.dto.doctor.PatchDoctorScheduleRequest;
 import amalitech.hospital.management.enums.ScheduleDay;
 import amalitech.hospital.management.exception.runtime.BadRequestException;
 import amalitech.hospital.management.exception.runtime.NotFoundException;
@@ -68,6 +69,39 @@ public class DoctorScheduleService {
         schedule.setStartTime(request.getStartTime());
         schedule.setEndTime(request.getEndTime());
         schedule.setIsAvailable(request.getIsAvailable() == null || request.getIsAvailable());
+        schedule.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
+        return toResponse(doctorScheduleRepository.save(schedule));
+    }
+
+    /**
+     * Partial-update counterpart to {@link #updateSchedule} — only the fields actually
+     * present in {@code patch} are changed; everything else is left untouched. The
+     * start/end time-range check still runs whenever either time changes, comparing
+     * against the *effective* pair (the patched value where given, the schedule's
+     * existing value otherwise) — not just the two fields in isolation, since a
+     * one-sided patch (e.g. only a new {@code startTime}) must still be checked against
+     * whichever {@code endTime} the block will actually have afterward.
+     */
+    @Transactional
+    public DoctorScheduleResponse patchSchedule(String doctorId, String scheduleId, PatchDoctorScheduleRequest patch) {
+        DoctorSchedule schedule = findScheduleOrThrow(doctorId, scheduleId);
+        if (patch.getDayOfWeek() != null) {
+            schedule.setDayOfWeek(validateDay(patch.getDayOfWeek()));
+        }
+        LocalTime effectiveStart = patch.getStartTime() != null ? patch.getStartTime() : schedule.getStartTime();
+        LocalTime effectiveEnd = patch.getEndTime() != null ? patch.getEndTime() : schedule.getEndTime();
+        if (patch.getStartTime() != null || patch.getEndTime() != null) {
+            validateTimeRange(effectiveStart, effectiveEnd);
+        }
+        if (patch.getStartTime() != null) {
+            schedule.setStartTime(patch.getStartTime());
+        }
+        if (patch.getEndTime() != null) {
+            schedule.setEndTime(patch.getEndTime());
+        }
+        if (patch.getIsAvailable() != null) {
+            schedule.setIsAvailable(patch.getIsAvailable());
+        }
         schedule.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
         return toResponse(doctorScheduleRepository.save(schedule));
     }
