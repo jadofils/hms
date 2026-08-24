@@ -9,11 +9,14 @@ import amalitech.hospital.management.repository.user.logs.SystemLogRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PagedModel;
 
 import java.time.LocalDateTime;
@@ -23,6 +26,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -62,13 +66,17 @@ class SystemLogServiceTest {
 
     @Test
     void getSystemLogs_filtersByLogLevel_whenOnlyLevelGiven() {
-        when(systemLogRepository.findByLogLevel("ERROR", PageRequest.of(0, 20)))
+        // any(Pageable.class), not the literal instance passed in below —
+        // getSystemLogs now applies a default sort (see PageableDefaults) when the
+        // caller sends none, so the Pageable that actually reaches the repository is a
+        // different (sorted) instance.
+        when(systemLogRepository.findByLogLevel(eq("ERROR"), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(existingLog)));
 
         PagedModel<SystemLogResponse> result = systemLogService.getSystemLogs(PageRequest.of(0, 20), "ERROR", null);
 
         assertThat(result.getContent()).hasSize(1);
-        verify(systemLogRepository).findByLogLevel("ERROR", PageRequest.of(0, 20));
+        verify(systemLogRepository).findByLogLevel(eq("ERROR"), any(Pageable.class));
     }
 
     @Test
@@ -80,20 +88,20 @@ class SystemLogServiceTest {
 
     @Test
     void getSystemLogs_filtersBySourceContainingIgnoreCase_whenOnlySourceGiven() {
-        when(systemLogRepository.findBySourceContainingIgnoreCase("RoleService", PageRequest.of(0, 20)))
+        when(systemLogRepository.findBySourceContainingIgnoreCase(eq("RoleService"), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(existingLog)));
 
         PagedModel<SystemLogResponse> result =
                 systemLogService.getSystemLogs(PageRequest.of(0, 20), null, "RoleService");
 
         assertThat(result.getContent()).hasSize(1);
-        verify(systemLogRepository).findBySourceContainingIgnoreCase("RoleService", PageRequest.of(0, 20));
+        verify(systemLogRepository).findBySourceContainingIgnoreCase(eq("RoleService"), any(Pageable.class));
     }
 
     @Test
     void getSystemLogs_combinesBothFilters_whenBothGiven() {
         when(systemLogRepository.findByLogLevelAndSourceContainingIgnoreCase(
-                "ERROR", "RoleService", PageRequest.of(0, 20)))
+                eq("ERROR"), eq("RoleService"), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(existingLog)));
 
         PagedModel<SystemLogResponse> result =
@@ -101,7 +109,19 @@ class SystemLogServiceTest {
 
         assertThat(result.getContent()).hasSize(1);
         verify(systemLogRepository)
-                .findByLogLevelAndSourceContainingIgnoreCase("ERROR", "RoleService", PageRequest.of(0, 20));
+                .findByLogLevelAndSourceContainingIgnoreCase(eq("ERROR"), eq("RoleService"), any(Pageable.class));
+    }
+
+    @Test
+    void getSystemLogs_defaultsToCreatedAtDescending_whenCallerSendsNoSort() {
+        when(systemLogRepository.findAll(any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(existingLog)));
+        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
+
+        systemLogService.getSystemLogs(PageRequest.of(0, 20), null, null);
+
+        verify(systemLogRepository).findAll(captor.capture());
+        assertThat(captor.getValue().getSort()).isEqualTo(Sort.by(Sort.Direction.DESC, "createdAt"));
     }
 
     @Test
