@@ -6,6 +6,7 @@ import amalitech.hospital.management.aop.EventBus;
 import amalitech.hospital.management.dto.doctor.DoctorResponse;
 import amalitech.hospital.management.dto.patient.AppointmentRequest;
 import amalitech.hospital.management.dto.patient.AppointmentResponse;
+import amalitech.hospital.management.dto.patient.PatchAppointmentRequest;
 import amalitech.hospital.management.dto.patient.PatientResponse;
 import amalitech.hospital.management.enums.AppointmentStatus;
 import amalitech.hospital.management.event.AppointmentCreatedEvent;
@@ -178,6 +179,48 @@ public class AppointmentService {
         appointment.setReason(request.getReason());
         if (request.getStatus() != null && !request.getStatus().isBlank()) {
             appointment.setStatus(validateStatus(request.getStatus()));
+        }
+        appointment.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
+        return toResponse(appointmentRepository.save(appointment));
+    }
+
+    /**
+     * Partial-update counterpart to {@link #updateAppointment} — only the fields
+     * actually present in {@code patch} are changed; everything else is left
+     * untouched. {@link #throwIfDoctorDoubleBooked} only re-runs when
+     * {@code doctorId}/{@code appointmentDate} are actually part of the patch — a
+     * patch that only touches {@code reason}/{@code status} can't possibly create a
+     * new conflict, so re-checking it against the *effective* (patched-or-existing)
+     * doctor/date pair would just repeat the exact same check {@link #updateAppointment}
+     * already ran when this slot was first set, for no reason.
+     */
+    @Transactional(isolation = Isolation.REPEATABLE_READ)
+    @CachePut(value = "appointments", key = "#appointmentId")
+    public AppointmentResponse patchAppointment(String appointmentId, PatchAppointmentRequest patch) {
+        Appointment appointment = findAppointmentOrThrow(appointmentId);
+        if (patch.getPatientId() != null) {
+            appointment.setPatient(findPatientOrThrow(patch.getPatientId()));
+        }
+
+        Doctor doctor = patch.getDoctorId() != null ? findDoctorOrThrow(patch.getDoctorId()) : null;
+        if (patch.getDoctorId() != null || patch.getAppointmentDate() != null) {
+            String effectiveDoctorId = doctor != null ? doctor.getDoctorId() : appointment.getDoctor().getDoctorId();
+            LocalDateTime effectiveDate = patch.getAppointmentDate() != null
+                    ? patch.getAppointmentDate() : appointment.getAppointmentDate();
+            throwIfDoctorDoubleBooked(effectiveDoctorId, effectiveDate, appointmentId);
+        }
+
+        if (doctor != null) {
+            appointment.setDoctor(doctor);
+        }
+        if (patch.getAppointmentDate() != null) {
+            appointment.setAppointmentDate(patch.getAppointmentDate());
+        }
+        if (patch.getReason() != null) {
+            appointment.setReason(patch.getReason());
+        }
+        if (patch.getStatus() != null && !patch.getStatus().isBlank()) {
+            appointment.setStatus(validateStatus(patch.getStatus()));
         }
         appointment.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
         return toResponse(appointmentRepository.save(appointment));
