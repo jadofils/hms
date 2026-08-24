@@ -1,5 +1,6 @@
 package amalitech.hospital.management.service;
 
+import amalitech.hospital.management.dto.user.role.PatchRoleRequest;
 import amalitech.hospital.management.dto.user.role.RolePermissionCountResponse;
 import amalitech.hospital.management.dto.user.role.RoleRequest;
 import amalitech.hospital.management.dto.user.role.RoleResponse;
@@ -90,6 +91,34 @@ class RoleServiceTest {
         assertThat(result.getContent()).hasSize(1);
         assertThat(result.getContent().get(0).getRoleName()).isEqualTo("Admin");
         assertThat(result.getContent().get(0).getDescription()).isEqualTo("Full access");
+    }
+
+    @Test
+    void getRoles_defaultsToRoleNameAscending_whenCallerSendsNoSort() {
+        Page<Role> page = new PageImpl<>(List.of(existingRole), PageRequest.of(0, 20), 1);
+        when(roleRepository.findAll(any(org.springframework.data.domain.Pageable.class))).thenReturn(page);
+        ArgumentCaptor<org.springframework.data.domain.Pageable> captor =
+                ArgumentCaptor.forClass(org.springframework.data.domain.Pageable.class);
+
+        roleService.getRoles(PageRequest.of(0, 20)); // no Sort at all — the caller-omitted case
+
+        verify(roleRepository).findAll(captor.capture());
+        assertThat(captor.getValue().getSort()).isEqualTo(Sort.by(Sort.Direction.ASC, "roleName"));
+    }
+
+    @Test
+    void getRoles_leavesACallerSuppliedSort_unchanged() {
+        Page<Role> page = new PageImpl<>(List.of(existingRole), PageRequest.of(0, 20), 1);
+        when(roleRepository.findAll(any(org.springframework.data.domain.Pageable.class))).thenReturn(page);
+        ArgumentCaptor<org.springframework.data.domain.Pageable> captor =
+                ArgumentCaptor.forClass(org.springframework.data.domain.Pageable.class);
+        org.springframework.data.domain.Pageable requested =
+                PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "createdAt"));
+
+        roleService.getRoles(requested);
+
+        verify(roleRepository).findAll(captor.capture());
+        assertThat(captor.getValue().getSort()).isEqualTo(Sort.by(Sort.Direction.DESC, "createdAt"));
     }
 
     // ── getRole ──────────────────────────────────────────────────────────────
@@ -226,6 +255,74 @@ class RoleServiceTest {
         RoleRequest request = requestFor("Admin", "Updated description");
 
         assertThatThrownBy(() -> roleService.updateRole("role-1", request))
+                .isInstanceOf(ConflictException.class)
+                .hasMessageContaining("still assigned");
+        verify(roleRepository, never()).save(any());
+    }
+
+    // ── patchRole ────────────────────────────────────────────────────────────
+
+    @Test
+    void patchRole_changesOnlyDescription_whenOnlyDescriptionGiven() {
+        when(roleRepository.findById("role-1")).thenReturn(Optional.of(existingRole));
+        when(roleRepository.save(any(Role.class))).thenAnswer(inv -> inv.getArgument(0));
+        PatchRoleRequest patch = new PatchRoleRequest();
+        patch.setDescription("Only the description changed");
+
+        RoleResponse response = roleService.patchRole("role-1", patch);
+
+        assertThat(response.getDescription()).isEqualTo("Only the description changed");
+        assertThat(response.getRoleName()).isEqualTo("Admin"); // untouched — roleName was never in the patch
+        verify(roleRepository, never()).existsByRoleName(any());
+    }
+
+    @Test
+    void patchRole_doesNotCheckAssignment_whenRoleNameNotIncluded() {
+        // The real point of the partial-update semantics: a patch that never touches
+        // roleName must not trip the "still assigned to a user" guard that updateRole
+        // runs unconditionally — see patchRole's own Javadoc.
+        when(roleRepository.findById("role-1")).thenReturn(Optional.of(existingRole));
+        when(roleRepository.save(any(Role.class))).thenAnswer(inv -> inv.getArgument(0));
+        PatchRoleRequest patch = new PatchRoleRequest();
+        patch.setDescription("Updated");
+
+        roleService.patchRole("role-1", patch);
+
+        verify(userRoleRepository, never()).existsByIdRoleIdAndRevokedAtIsNull(any());
+    }
+
+    @Test
+    void patchRole_leavesDescriptionUnchanged_whenOnlyRoleNameGiven() {
+        when(roleRepository.findById("role-1")).thenReturn(Optional.of(existingRole));
+        when(roleRepository.save(any(Role.class))).thenAnswer(inv -> inv.getArgument(0));
+        PatchRoleRequest patch = new PatchRoleRequest();
+        patch.setRoleName("Senior Nurse");
+
+        RoleResponse response = roleService.patchRole("role-1", patch);
+
+        assertThat(response.getRoleName()).isEqualTo("Senior Nurse");
+        assertThat(response.getDescription()).isEqualTo("Full access"); // untouched
+    }
+
+    @Test
+    void patchRole_throwsConflict_whenNewNameTaken() {
+        when(roleRepository.findById("role-1")).thenReturn(Optional.of(existingRole));
+        when(roleRepository.existsByRoleName("SuperAdmin")).thenReturn(true);
+        PatchRoleRequest patch = new PatchRoleRequest();
+        patch.setRoleName("SuperAdmin");
+
+        assertThatThrownBy(() -> roleService.patchRole("role-1", patch)).isInstanceOf(ConflictException.class);
+        verify(roleRepository, never()).save(any());
+    }
+
+    @Test
+    void patchRole_throwsConflict_whenRoleIsAssignedToAUser_andRoleNameIsBeingChanged() {
+        when(roleRepository.findById("role-1")).thenReturn(Optional.of(existingRole));
+        when(userRoleRepository.existsByIdRoleIdAndRevokedAtIsNull("role-1")).thenReturn(true);
+        PatchRoleRequest patch = new PatchRoleRequest();
+        patch.setRoleName("Senior Nurse");
+
+        assertThatThrownBy(() -> roleService.patchRole("role-1", patch))
                 .isInstanceOf(ConflictException.class)
                 .hasMessageContaining("still assigned");
         verify(roleRepository, never()).save(any());
