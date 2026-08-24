@@ -41,8 +41,27 @@ input DoctorInput {
     departmentIds: [ID!]
 }
 
+"""Partial-update counterpart to DoctorInput — every field optional; only the ones
+present in the request get changed. No departmentIds — that's managed by
+assignDepartment/removeDepartment instead, same as updateDoctor."""
+input PatchDoctorInput {
+    firstName: String
+    lastName: String
+    specialization: String
+    phone: String
+    email: String
+}
+
 input DepartmentInput {
     name: String!
+    location: String
+    phone: String
+}
+
+"""Partial-update counterpart to DepartmentInput — every field optional; only the ones
+present in the request get changed."""
+input PatchDepartmentInput {
+    name: String
     location: String
     phone: String
 }
@@ -51,6 +70,15 @@ input DoctorScheduleInput {
     dayOfWeek: String!
     startTime: LocalTime!
     endTime: LocalTime!
+    isAvailable: Boolean
+}
+
+"""Partial-update counterpart to DoctorScheduleInput — every field optional; only the
+ones present in the request get changed."""
+input PatchDoctorScheduleInput {
+    dayOfWeek: String
+    startTime: LocalTime
+    endTime: LocalTime
     isAvailable: Boolean
 }
 
@@ -73,15 +101,18 @@ extend type Query {
 extend type Mutation {
     createDoctor(input: DoctorInput!): Doctor!
     updateDoctor(doctorId: ID!, input: DoctorInput!): Doctor!
+    patchDoctor(doctorId: ID!, input: PatchDoctorInput!): Doctor!
     deleteDoctor(doctorId: ID!): Boolean!
     assignDepartment(doctorId: ID!, departmentId: ID!): Doctor!
     removeDepartment(doctorId: ID!, departmentId: ID!): Doctor!
 
     createDepartment(input: DepartmentInput!): Department!
     updateDepartment(departmentId: ID!, input: DepartmentInput!): Department!
+    patchDepartment(departmentId: ID!, input: PatchDepartmentInput!): Department!
     deleteDepartment(departmentId: ID!): Boolean!
 
     createDoctorSchedule(doctorId: ID!, input: DoctorScheduleInput!): DoctorSchedule!
     updateDoctorSchedule(doctorId: ID!, scheduleId: ID!, input: DoctorScheduleInput!): DoctorSchedule!
+    patchDoctorSchedule(doctorId: ID!, scheduleId: ID!, input: PatchDoctorScheduleInput!): DoctorSchedule!
     deleteDoctorSchedule(doctorId: ID!, scheduleId: ID!): Boolean!
 }
