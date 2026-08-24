@@ -155,6 +155,55 @@ class LabResultServiceTest {
         assertThat(response.getIsAbnormal()).isTrue();
     }
 
+    // ── patchResult ──────────────────────────────────────────────────────────
+
+    @Test
+    void patchResult_changesOnlyResultValue_whenOnlyResultValueGiven() {
+        when(labOrderRepository.findById("lab-1")).thenReturn(Optional.of(existingLabOrder));
+        when(labResultRepository.findByLabOrder_LabOrderId("lab-1")).thenReturn(Optional.of(existingResult));
+        when(labResultRepository.save(any(LabResult.class))).thenAnswer(inv -> inv.getArgument(0));
+        LabResultRequest patch = new LabResultRequest();
+        patch.setResultValue("6.4");
+
+        LabResultResponse response = labResultService.patchResult("lab-1", patch);
+
+        assertThat(response.getResultValue()).isEqualTo("6.4");
+        assertThat(response.getUnit()).isEqualTo("mmol/L"); // untouched
+        assertThat(response.getIsAbnormal()).isFalse(); // untouched, not reset to a default
+    }
+
+    @Test
+    void patchResult_leavesIsAbnormalUntouched_whenOmitted() {
+        existingResult.setIsAbnormal(true);
+        when(labOrderRepository.findById("lab-1")).thenReturn(Optional.of(existingLabOrder));
+        when(labResultRepository.findByLabOrder_LabOrderId("lab-1")).thenReturn(Optional.of(existingResult));
+        when(labResultRepository.save(any(LabResult.class))).thenAnswer(inv -> inv.getArgument(0));
+        LabResultRequest patch = new LabResultRequest();
+        patch.setUnit("mg/dL");
+
+        LabResultResponse response = labResultService.patchResult("lab-1", patch);
+
+        assertThat(response.getUnit()).isEqualTo("mg/dL");
+        assertThat(response.getIsAbnormal()).isTrue(); // still true, not reset to false like updateResult would do
+    }
+
+    @Test
+    void patchResult_throwsNotFound_whenNoResultRecordedYet() {
+        when(labOrderRepository.findById("lab-1")).thenReturn(Optional.of(existingLabOrder));
+        when(labResultRepository.findByLabOrder_LabOrderId("lab-1")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> labResultService.patchResult("lab-1", new LabResultRequest()))
+                .isInstanceOf(NotFoundException.class);
+    }
+
+    @Test
+    void patchResult_throwsNotFound_whenLabOrderAbsent() {
+        when(labOrderRepository.findById("missing")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> labResultService.patchResult("missing", new LabResultRequest()))
+                .isInstanceOf(NotFoundException.class);
+    }
+
     @Test
     void deleteResult_setsDeletedAt() {
         when(labOrderRepository.findById("lab-1")).thenReturn(Optional.of(existingLabOrder));
