@@ -1,5 +1,6 @@
 package amalitech.hospital.management.resolvers;
 
+import amalitech.hospital.management.dto.user.role.PatchRoleRequest;
 import amalitech.hospital.management.dto.user.role.RoleRequest;
 import amalitech.hospital.management.dto.user.role.RoleResponse;
 import amalitech.hospital.management.dto.user.role.permission.PermissionResponse;
@@ -47,6 +48,11 @@ public class RoleResolver {
     @MutationMapping
     public RoleResponse updateRole(@Argument String roleId, @Argument @Valid RoleRequest input) {
         return roleService.updateRole(roleId, input);
+    }
+
+    @MutationMapping
+    public RoleResponse patchRole(@Argument String roleId, @Argument @Valid PatchRoleRequest input) {
+        return roleService.patchRole(roleId, input);
     }
 
     @MutationMapping
