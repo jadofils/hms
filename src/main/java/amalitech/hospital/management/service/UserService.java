@@ -2,6 +2,7 @@ package amalitech.hospital.management.service;
 
 import amalitech.hospital.management.annotation.FindUserData;
 import amalitech.hospital.management.dto.user.AdminCreateUserRequest;
+import amalitech.hospital.management.dto.user.PatchUserRequest;
 import amalitech.hospital.management.dto.user.UserRequest;
 import amalitech.hospital.management.dto.user.UserResponse;
 import amalitech.hospital.management.dto.doctor.DoctorResponse;
@@ -334,6 +335,33 @@ public class UserService {
         user.setUsername(request.getUsername());
         user.setEmail(request.getEmail());
         user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+        user.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
+        return toResponse(userRepository.save(user));
+    }
+
+    /**
+     * Partial-update counterpart to {@link #updateUser} — only the fields actually
+     * present in {@code patch} are changed; everything else on the existing user is
+     * left untouched. Has no {@code password} field at all (see
+     * {@link PatchUserRequest}'s own Javadoc) — {@code passwordHash} is never touched
+     * here, unlike every other field.
+     */
+    @Transactional
+    @CachePut(value = "users", key = "#userId")
+    public UserResponse patchUser(String userId, PatchUserRequest patch) {
+        User user = findUserOrThrow(userId);
+        if (patch.getUsername() != null) {
+            if (!user.getUsername().equals(patch.getUsername()) && userRepository.existsByUsername(patch.getUsername())) {
+                throw new ConflictException("Username '" + patch.getUsername() + "' is already taken");
+            }
+            user.setUsername(patch.getUsername());
+        }
+        if (patch.getEmail() != null) {
+            if (!patch.getEmail().equals(user.getEmail()) && userRepository.existsByEmail(patch.getEmail())) {
+                throw new ConflictException("Email '" + patch.getEmail() + "' is already registered");
+            }
+            user.setEmail(patch.getEmail());
+        }
         user.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
         return toResponse(userRepository.save(user));
     }
