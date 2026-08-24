@@ -2,16 +2,19 @@ package amalitech.hospital.management.service;
 
 import amalitech.hospital.management.dto.pharmacy.MedicalInventoryRequest;
 import amalitech.hospital.management.dto.pharmacy.MedicalInventoryResponse;
+import amalitech.hospital.management.dto.pharmacy.PatchMedicalInventoryRequest;
 import amalitech.hospital.management.exception.runtime.NotFoundException;
 import amalitech.hospital.management.model.pharmacy.MedicalInventory;
 import amalitech.hospital.management.model.pharmacy.Medication;
 import amalitech.hospital.management.repository.pharmacy.MedicalInventoryRepository;
 import amalitech.hospital.management.repository.pharmacy.MedicationRepository;
+import amalitech.hospital.management.utils.PageableDefaults;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.CachePut;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PagedModel;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -41,14 +44,18 @@ public class MedicalInventoryService {
      */
     public PagedModel<MedicalInventoryResponse> getInventoryRecords(
             Pageable pageable, String medicationId, Boolean lowStock) {
+        // Defaults to expiryDate ASC (matching this endpoint's own Swagger sort
+        // example) when the caller sends no ?sort= at all — covers all three
+        // branches below. See PageableDefaults' own Javadoc.
+        Pageable sorted = PageableDefaults.withDefaultSort(pageable, "expiryDate", Sort.Direction.ASC);
         if (Boolean.TRUE.equals(lowStock)) {
-            return new PagedModel<>(medicalInventoryRepository.findLowStock(pageable).map(this::toResponse));
+            return new PagedModel<>(medicalInventoryRepository.findLowStock(sorted).map(this::toResponse));
         }
         if (medicationId != null && !medicationId.isBlank()) {
             return new PagedModel<>(medicalInventoryRepository
-                    .findByMedication_MedicationIdAndDeletedAtIsNull(medicationId, pageable).map(this::toResponse));
+                    .findByMedication_MedicationIdAndDeletedAtIsNull(medicationId, sorted).map(this::toResponse));
         }
-        return new PagedModel<>(medicalInventoryRepository.findAll(pageable).map(this::toResponse));
+        return new PagedModel<>(medicalInventoryRepository.findAll(sorted).map(this::toResponse));
     }
 
     @Cacheable(value = "medical-inventory", key = "#inventoryId")
@@ -85,6 +92,39 @@ public class MedicalInventoryService {
         inventory.setQuantityInStock(request.getQuantityInStock() == null ? 0 : request.getQuantityInStock());
         inventory.setReorderLevel(request.getReorderLevel() == null ? 10 : request.getReorderLevel());
         inventory.setSupplier(request.getSupplier());
+        inventory.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
+        return toResponse(medicalInventoryRepository.save(inventory));
+    }
+
+    /**
+     * Partial-update counterpart to {@link #updateInventoryRecord} — only the fields
+     * actually present in {@code patch} are changed; everything else on the existing
+     * record is left untouched (unlike {@code updateInventoryRecord}, an omitted
+     * {@code quantityInStock}/{@code reorderLevel} here is left as-is rather than
+     * reset to their create-time defaults).
+     */
+    @Transactional
+    @CachePut(value = "medical-inventory", key = "#inventoryId")
+    public MedicalInventoryResponse patchInventoryRecord(String inventoryId, PatchMedicalInventoryRequest patch) {
+        MedicalInventory inventory = findInventoryOrThrow(inventoryId);
+        if (patch.getMedicationId() != null) {
+            inventory.setMedication(findMedicationOrThrow(patch.getMedicationId()));
+        }
+        if (patch.getBatchNumber() != null) {
+            inventory.setBatchNumber(patch.getBatchNumber());
+        }
+        if (patch.getExpiryDate() != null) {
+            inventory.setExpiryDate(patch.getExpiryDate());
+        }
+        if (patch.getQuantityInStock() != null) {
+            inventory.setQuantityInStock(patch.getQuantityInStock());
+        }
+        if (patch.getReorderLevel() != null) {
+            inventory.setReorderLevel(patch.getReorderLevel());
+        }
+        if (patch.getSupplier() != null) {
+            inventory.setSupplier(patch.getSupplier());
+        }
         inventory.setUpdatedAt(LocalDateTime.now(ZoneId.systemDefault()));
         return toResponse(medicalInventoryRepository.save(inventory));
     }
