@@ -4,6 +4,7 @@ import amalitech.hospital.management.annotation.RequirePermission;
 import amalitech.hospital.management.dto.common.ApiResult;
 import amalitech.hospital.management.dto.pharmacy.MedicalInventoryRequest;
 import amalitech.hospital.management.dto.pharmacy.MedicalInventoryResponse;
+import amalitech.hospital.management.dto.pharmacy.PatchMedicalInventoryRequest;
 import amalitech.hospital.management.enums.PermissionAction;
 import amalitech.hospital.management.enums.Resource;
 import amalitech.hospital.management.service.MedicalInventoryService;
@@ -54,8 +55,9 @@ public class MedicalInventoryController {
     public ResponseEntity<ApiResult<PagedModel<MedicalInventoryResponse>>> getInventoryRecords(
             Pageable pageable,
             @Parameter(description = "Filter to only batches at or below their own reorder level — a "
-                    + "restock-alert worklist") @RequestParam(required = false) Boolean lowStock,
-            @Parameter(description = "Filter to every batch on hand for one medication")
+                    + "restock-alert worklist", example = "true") @RequestParam(required = false) Boolean lowStock,
+            @Parameter(description = "Filter to every batch on hand for one medication",
+                    example = "3fa85f64-5717-4562-b3fc-2c963f66afa6")
             @RequestParam(required = false) String medicationId) {
         return ResponseEntity.ok(ApiResult.of("Inventory records retrieved",
                 medicalInventoryService.getInventoryRecords(pageable, medicationId, lowStock)));
@@ -93,6 +95,21 @@ public class MedicalInventoryController {
             @Valid @RequestBody MedicalInventoryRequest request) {
         return ResponseEntity.ok(ApiResult.of("Inventory record updated",
                 medicalInventoryService.updateInventoryRecord(inventoryId, request)));
+    }
+
+    @PatchMapping("/{inventoryId}")
+    @Operation(summary = "Partially update an inventory record",
+            description = "Unlike PUT — which overwrites every field with whatever the request carries — "
+                    + "only the fields actually present in the request body are changed here; omitted "
+                    + "fields are left exactly as they were.")
+    @ApiResponse(responseCode = "200", description = "Inventory record updated")
+    @ApiResponse(responseCode = "404", description = "Inventory record or medication not found")
+    @RequirePermission(resource = Resource.MEDICAL_INVENTORY, action = PermissionAction.UPDATE)
+    public ResponseEntity<ApiResult<MedicalInventoryResponse>> patchInventoryRecord(
+            @Parameter(description = "Inventory record UUID") @PathVariable String inventoryId,
+            @Valid @RequestBody PatchMedicalInventoryRequest request) {
+        return ResponseEntity.ok(ApiResult.of("Inventory record updated",
+                medicalInventoryService.patchInventoryRecord(inventoryId, request)));
     }
 
     @DeleteMapping("/{inventoryId}")
