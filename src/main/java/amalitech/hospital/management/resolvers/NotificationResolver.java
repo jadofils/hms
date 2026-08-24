@@ -2,6 +2,7 @@ package amalitech.hospital.management.resolvers;
 
 import amalitech.hospital.management.dto.notification.NotificationRequest;
 import amalitech.hospital.management.dto.notification.NotificationResponse;
+import amalitech.hospital.management.dto.notification.PatchNotificationRequest;
 import amalitech.hospital.management.service.NotificationService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -46,6 +47,11 @@ public class NotificationResolver {
     @MutationMapping
     public NotificationResponse updateNotification(@Argument String notificationId, @Argument @Valid NotificationRequest input) {
         return notificationService.updateNotification(notificationId, input);
+    }
+
+    @MutationMapping
+    public NotificationResponse patchNotification(@Argument String notificationId, @Argument @Valid PatchNotificationRequest input) {
+        return notificationService.patchNotification(notificationId, input);
     }
 
     @MutationMapping
