@@ -4,6 +4,7 @@ import amalitech.hospital.management.annotation.RequirePermission;
 import amalitech.hospital.management.dto.common.ApiResult;
 import amalitech.hospital.management.dto.lab.LabOrderRequest;
 import amalitech.hospital.management.dto.lab.LabOrderResponse;
+import amalitech.hospital.management.dto.lab.PatchLabOrderRequest;
 import amalitech.hospital.management.enums.PermissionAction;
 import amalitech.hospital.management.enums.Resource;
 import amalitech.hospital.management.service.LabOrderService;
@@ -53,7 +54,8 @@ public class LabOrderController {
     @RequirePermission(resource = Resource.LAB_ORDERS, action = PermissionAction.READ)
     public ResponseEntity<ApiResult<PagedModel<LabOrderResponse>>> getLabOrders(
             Pageable pageable,
-            @Parameter(description = "Filter by status: ordered, in_progress, completed, cancelled")
+            @Parameter(description = "Filter by status: ordered, in_progress, completed, cancelled",
+                    example = "ordered")
             @RequestParam(required = false) String status) {
         return ResponseEntity.ok(ApiResult.of("Lab orders retrieved", labOrderService.getLabOrders(pageable, status)));
     }
@@ -87,6 +89,20 @@ public class LabOrderController {
             @Parameter(description = "Lab order UUID") @PathVariable String labOrderId,
             @Valid @RequestBody LabOrderRequest request) {
         return ResponseEntity.ok(ApiResult.of("Lab order updated", labOrderService.updateLabOrder(labOrderId, request)));
+    }
+
+    @PatchMapping("/{labOrderId}")
+    @Operation(summary = "Partially update a lab order",
+            description = "Unlike PUT — which overwrites every field with whatever the request carries — "
+                    + "only the fields actually present in the request body are changed here; omitted "
+                    + "fields are left exactly as they were.")
+    @ApiResponse(responseCode = "200", description = "Lab order updated")
+    @ApiResponse(responseCode = "404", description = "Lab order, appointment, or doctor not found")
+    @RequirePermission(resource = Resource.LAB_ORDERS, action = PermissionAction.UPDATE)
+    public ResponseEntity<ApiResult<LabOrderResponse>> patchLabOrder(
+            @Parameter(description = "Lab order UUID") @PathVariable String labOrderId,
+            @Valid @RequestBody PatchLabOrderRequest request) {
+        return ResponseEntity.ok(ApiResult.of("Lab order updated", labOrderService.patchLabOrder(labOrderId, request)));
     }
 
     @DeleteMapping("/{labOrderId}")
