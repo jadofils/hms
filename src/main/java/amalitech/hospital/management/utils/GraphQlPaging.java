@@ -19,10 +19,10 @@ import org.springframework.data.domain.Sort;
  * {@code ?sort=} entirely. Before this, every GraphQL listing query hardcoded
  * {@code PageRequest.of(page, size)} with no way to request an order at all — the
  * underlying service methods (e.g. {@code PatientService.getPatients}) already read
- * {@code Pageable.getSort()} to drive `@FindUserData`'s whitelisted `ORDER BY`, or,
- * for the plain-JPA listings, get it applied automatically by Hibernate — so wiring
- * {@code sort} through here needed no service-layer change at all, only this parsing
- * step on the GraphQL side.
+ * {@code Pageable.getSort()} to drive {@code @FindUserData}'s whitelisted
+ * {@code ORDER BY}, or, for the plain-JPA listings, apply {@link PageableDefaults}'
+ * own fallback — so wiring {@code sort} through here needed no service-layer change at
+ * all, only this parsing step on the GraphQL side.
  */
 public final class GraphQlPaging {
 
