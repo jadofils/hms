@@ -4,6 +4,7 @@ import amalitech.hospital.management.dto.doctor.DoctorResponse;
 import amalitech.hospital.management.dto.lab.LabOrderRequest;
 import amalitech.hospital.management.dto.lab.LabOrderResponse;
 import amalitech.hospital.management.dto.lab.LabResultResponse;
+import amalitech.hospital.management.dto.lab.PatchLabOrderRequest;
 import amalitech.hospital.management.dto.patient.AppointmentResponse;
 import amalitech.hospital.management.exception.runtime.NotFoundException;
 import amalitech.hospital.management.service.AppointmentService;
@@ -59,6 +60,11 @@ public class LabOrderResolver {
     @MutationMapping
     public LabOrderResponse updateLabOrder(@Argument String labOrderId, @Argument @Valid LabOrderRequest input) {
         return labOrderService.updateLabOrder(labOrderId, input);
+    }
+
+    @MutationMapping
+    public LabOrderResponse patchLabOrder(@Argument String labOrderId, @Argument @Valid PatchLabOrderRequest input) {
+        return labOrderService.patchLabOrder(labOrderId, input);
     }
 
     @MutationMapping
