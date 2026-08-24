@@ -60,9 +60,10 @@ public class SystemLogController {
     @RequirePermission(resource = Resource.SYSTEM_LOGS, action = PermissionAction.READ)
     public ResponseEntity<ApiResult<PagedModel<SystemLogResponse>>> getSystemLogs(
             Pageable pageable,
-            @Parameter(description = "Filter by exact log level: DEBUG, INFO, WARNING, ERROR")
+            @Parameter(description = "Filter by exact log level: DEBUG, INFO, WARNING, ERROR", example = "WARNING")
             @RequestParam(required = false) String logLevel,
-            @Parameter(description = "Filter by source, case-insensitive contains match (e.g. RoleService)")
+            @Parameter(description = "Filter by source, case-insensitive contains match (e.g. RoleService)",
+                    example = "RoleService")
             @RequestParam(required = false) String source) {
         return ResponseEntity.ok(
                 ApiResult.of("System logs retrieved", systemLogService.getSystemLogs(pageable, logLevel, source)));
