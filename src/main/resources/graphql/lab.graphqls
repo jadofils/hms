@@ -28,7 +28,26 @@ input LabOrderInput {
     status: String
 }
 
+"""Partial-update counterpart to LabOrderInput — every field optional; only the ones
+present in the request get changed."""
+input PatchLabOrderInput {
+    appointmentId: ID
+    doctorId: ID
+    testName: String
+    status: String
+}
+
 input LabResultInput {
+    resultValue: String
+    unit: String
+    referenceRange: String
+    isAbnormal: Boolean
+    completedAt: LocalDateTime
+}
+
+"""Same shape as LabResultInput — every field there is already optional, so patching
+reuses the identical input type rather than a dedicated PatchLabResultInput."""
+input PatchLabResultInput {
     resultValue: String
     unit: String
     referenceRange: String
@@ -49,9 +68,11 @@ extend type Query {
 extend type Mutation {
     createLabOrder(input: LabOrderInput!): LabOrder!
     updateLabOrder(labOrderId: ID!, input: LabOrderInput!): LabOrder!
+    patchLabOrder(labOrderId: ID!, input: PatchLabOrderInput!): LabOrder!
     deleteLabOrder(labOrderId: ID!): Boolean!
 
     createLabResult(labOrderId: ID!, input: LabResultInput!): LabResult!
     updateLabResult(labOrderId: ID!, input: LabResultInput!): LabResult!
+    patchLabResult(labOrderId: ID!, input: PatchLabResultInput!): LabResult!
     deleteLabResult(labOrderId: ID!): Boolean!
 }
