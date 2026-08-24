@@ -67,6 +67,20 @@ public class LabResultController {
         return ResponseEntity.ok(ApiResult.of("Result updated", labResultService.updateResult(labOrderId, request)));
     }
 
+    @PatchMapping
+    @Operation(summary = "Partially update a lab order's result",
+            description = "Unlike PUT — which overwrites every field with whatever the request carries, "
+                    + "including null for anything omitted — only the fields actually present in the request "
+                    + "body are changed here; omitted fields are left exactly as they were.")
+    @ApiResponse(responseCode = "200", description = "Result updated")
+    @ApiResponse(responseCode = "404", description = "Lab order or result not found")
+    @RequirePermission(resource = Resource.LAB_RESULTS, action = PermissionAction.UPDATE)
+    public ResponseEntity<ApiResult<LabResultResponse>> patchResult(
+            @Parameter(description = "Lab order UUID") @PathVariable String labOrderId,
+            @Valid @RequestBody LabResultRequest request) {
+        return ResponseEntity.ok(ApiResult.of("Result updated", labResultService.patchResult(labOrderId, request)));
+    }
+
     @DeleteMapping
     @Operation(summary = "Delete a lab order's result")
     @ApiResponse(responseCode = "204", description = "Result deleted")
