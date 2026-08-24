@@ -492,6 +492,72 @@ class UserServiceTest {
         assertThat(existingUser.getPasswordHash()).isEqualTo("new-hash");
     }
 
+    // ── patchUser ────────────────────────────────────────────────────────────
+
+    @Test
+    void patchUser_changesOnlyEmail_whenOnlyEmailGiven() {
+        when(userRepository.findById("user-1")).thenReturn(Optional.of(existingUser));
+        when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+        amalitech.hospital.management.dto.user.PatchUserRequest patch =
+                new amalitech.hospital.management.dto.user.PatchUserRequest();
+        patch.setEmail("newemail@example.com");
+
+        UserResponse response = userService.patchUser("user-1", patch);
+
+        assertThat(response.getEmail()).isEqualTo("newemail@example.com");
+        assertThat(response.getUsername()).isEqualTo("alice"); // untouched
+        assertThat(existingUser.getPasswordHash()).isEqualTo("hashed"); // never touched by patch
+        verify(userRepository, never()).existsByUsername(anyString());
+    }
+
+    @Test
+    void patchUser_doesNotConflictCheck_whenUsernameUnchanged() {
+        when(userRepository.findById("user-1")).thenReturn(Optional.of(existingUser));
+        when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+        amalitech.hospital.management.dto.user.PatchUserRequest patch =
+                new amalitech.hospital.management.dto.user.PatchUserRequest();
+        patch.setUsername("alice");
+
+        userService.patchUser("user-1", patch);
+
+        verify(userRepository, never()).existsByUsername(anyString());
+    }
+
+    @Test
+    void patchUser_throwsConflict_whenNewUsernameTaken() {
+        when(userRepository.findById("user-1")).thenReturn(Optional.of(existingUser));
+        when(userRepository.existsByUsername("carol")).thenReturn(true);
+        amalitech.hospital.management.dto.user.PatchUserRequest patch =
+                new amalitech.hospital.management.dto.user.PatchUserRequest();
+        patch.setUsername("carol");
+
+        assertThatThrownBy(() -> userService.patchUser("user-1", patch))
+                .isInstanceOf(ConflictException.class);
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void patchUser_throwsConflict_whenNewEmailTaken() {
+        when(userRepository.findById("user-1")).thenReturn(Optional.of(existingUser));
+        when(userRepository.existsByEmail("taken@example.com")).thenReturn(true);
+        amalitech.hospital.management.dto.user.PatchUserRequest patch =
+                new amalitech.hospital.management.dto.user.PatchUserRequest();
+        patch.setEmail("taken@example.com");
+
+        assertThatThrownBy(() -> userService.patchUser("user-1", patch))
+                .isInstanceOf(ConflictException.class);
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void patchUser_throwsNotFound_whenAbsent() {
+        when(userRepository.findById("missing")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> userService.patchUser("missing",
+                new amalitech.hospital.management.dto.user.PatchUserRequest()))
+                .isInstanceOf(NotFoundException.class);
+    }
+
     // ── deleteUser ───────────────────────────────────────────────────────────
 
     @Test
