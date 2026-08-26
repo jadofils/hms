@@ -1,0 +1,27 @@
+# Prometheus config for HMS load testing. Not the install's own default config --
+# prometheus.cmd (repo root) points Prometheus at this file explicitly via --config.file,
+# leaving the actual install directory untouched.
+#
+# Two ways metrics get in here:
+#  1. k6 (hms-load-test.js via k6.cmd) PUSHES directly via remote-write -- this file
+#     doesn't need a scrape job for it; prometheus.cmd starts Prometheus with
+#     --web.enable-remote-write-receiver, which is all k6's side needs.
+#  2. JMeter (hms-load-test.jmx via jmeter.cmd) has no built-in Prometheus support, so
+#     docs/v5/load-testing/jmeter_prometheus_exporter.py re-parses the latest .jtl
+#     results file on every scrape and exposes it as a real /metrics endpoint --
+#     the scrape job below is that exporter, not JMeter itself.
+
+global:
+  scrape_interval: 2s # short interval -- these test runs are only ~60s long, and the
+  evaluation_interval: 2s # default 15s would only give 4 data points across one run.
+
+scrape_configs:
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: "jmeter"
+    static_configs:
+      - targets: ["localhost:9270"]
+        labels:
+          app: "hms-load-test"
