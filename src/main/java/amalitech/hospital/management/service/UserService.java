@@ -7,6 +7,7 @@ import amalitech.hospital.management.dto.user.UserRequest;
 import amalitech.hospital.management.dto.user.UserResponse;
 import amalitech.hospital.management.dto.doctor.DoctorResponse;
 import amalitech.hospital.management.dto.user.role.RoleResponse;
+import amalitech.hospital.management.enums.RoleName;
 import amalitech.hospital.management.event.AdminCreatedUserEvent;
 import amalitech.hospital.management.event.UserRegisteredEvent;
 import amalitech.hospital.management.exception.runtime.ConflictException;
@@ -78,6 +79,11 @@ public class UserService {
     // MailEventListener's own Javadoc for why.
     private final ApplicationEventPublisher eventPublisher;
     private final StringRedisTemplate redisTemplate;
+    // Consumed at the end of createUser — a live admin invite for this email wins over
+    // the generic assignDefaultGuestRole fallback below. No circular dependency:
+    // InviteService only depends on repositories + ApplicationEventPublisher, never back
+    // on UserService.
+    private final InviteService inviteService;
     private final SecureRandom secureRandom = new SecureRandom();
 
     @Value("${app.frontend-base-url}")
@@ -228,11 +234,65 @@ public class UserService {
         user.setUpdatedAt(now);
         UserResponse response = toResponse(userRepository.save(user));
 
+        // HMS v5 — a self-registered account is no longer left roleless: an admin
+        // invite for this exact email (if a live one exists) wins outright; otherwise
+        // it gets the generic Guest role automatically. Either way, this account can
+        // actually log in the moment its email is verified, rather than sitting blocked
+        // until an admin happens to notice and assigns something by hand.
+        inviteService.consumeInviteIfAny(request.getEmail())
+                .ifPresentOrElse(
+                        roleId -> assignRoleToNewAccount(user, roleId),
+                        () -> assignDefaultGuestRole(user));
+
         // Email is mandatory (see UserRequest), so every self-registration always sends
         // the verification link — AuthService.login's gate applies unconditionally now.
         sendVerificationEmail(user);
 
         return response;
+    }
+
+    /**
+     * Auto-granted to a brand-new self-service account (self-registration or a first
+     * Google OAuth2 login — see {@code AuthService.createGoogleProvisionedUser}) that
+     * wasn't pre-authorized by an admin invite. Deliberately read-only and narrow (see
+     * {@code DataSeeder}'s own {@code RoleName.GUEST} grant list: doctor directory/
+     * availability only) — never a role an admin assigns by hand, and never touched by
+     * {@link #createUserByAdmin}, which stays intentionally roleless until the admin
+     * creating it assigns the real role themselves right after.
+     */
+    @Transactional
+    public void assignDefaultGuestRole(User user) {
+        Role guestRole = roleRepository.findByRoleName(RoleName.GUEST.getDbValue())
+                .orElseThrow(() -> new IllegalStateException("Guest role not seeded"));
+        assignRoleToNewAccount(user, guestRole.getRoleId());
+    }
+
+    /**
+     * Grants {@code roleId} to a {@code User} that was JUST created — by
+     * {@link #createUser} above or {@code AuthService.createGoogleProvisionedUser} —
+     * called with the already-loaded entity directly rather than re-fetching by id the
+     * way the public {@link #assignRole} endpoint does, and skips that method's
+     * "already holds this role"/reactivate-a-previously-revoked-row checks entirely: a
+     * brand-new account has never held any role before this exact call, so neither case
+     * can apply.
+     */
+    @Transactional
+    public void assignRoleToNewAccount(User user, String roleId) {
+        Role role = roleRepository.findById(roleId)
+                .orElseThrow(() -> new NotFoundException("Role not found: " + roleId));
+
+        LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
+        UserRoleId id = new UserRoleId();
+        id.setUserId(user.getUserId());
+        id.setRoleId(roleId);
+
+        UserRole userRole = new UserRole();
+        userRole.setId(id);
+        userRole.setUser(user);
+        userRole.setRole(role);
+        userRole.setAssignedAt(now);
+        userRole.setUpdatedAt(now);
+        userRoleRepository.save(userRole);
     }
 
     /** Generates a single-use, Redis-backed verification token (mirrors
@@ -257,9 +317,11 @@ public class UserService {
      * {@link AdminCreateUserRequest}'s own Javadoc): a strong password is always
      * generated and emailed. Sets {@code emailVerifiedAt} immediately rather than going
      * through the link flow — receiving the generated password at that address already
-     * proves deliverability, so there's nothing more to verify. Still has no role, same
-     * as a self-registered account — an administrator assigns one via the existing
-     * {@link #assignRole} endpoint.
+     * proves deliverability, so there's nothing more to verify. Deliberately still has
+     * no role at all (HMS v5's Guest-auto-assign/invite-consumption in {@link #createUser}
+     * does NOT apply here) — an admin creating an account this way is already in the
+     * middle of provisioning it and assigns the actual intended role themselves right
+     * after via {@link #assignRole}, so an intermediate Guest hop would just be noise.
      */
     @Transactional
     public UserResponse createUserByAdmin(AdminCreateUserRequest request) {
@@ -415,6 +477,25 @@ public class UserService {
         userRole.setAssignedAt(now);
         userRole.setUpdatedAt(now);
         userRoleRepository.save(userRole);
+    }
+
+    /**
+     * Bulk counterpart to {@link #assignRole} — a user can hold many roles at once, so
+     * this grants every id in {@code roleIds} in one call. Routed through {@link #self}
+     * on each iteration, not {@code this.assignRole(...)} — {@link #assignRole} carries
+     * its own {@code @Transactional} (irrelevant here, since this method's own
+     * {@code @Transactional} already covers the whole loop in one transaction) but
+     * self-invocation would also bypass any future cache/AOP advice added to it, the
+     * same reasoning {@code DoctorService.createDoctor} already documents for its own
+     * {@code self.assignDepartment(...)} loop. All-or-nothing: the first id that
+     * doesn't exist or is already actively held throws, rolling back every grant this
+     * call already made.
+     */
+    @Transactional
+    public void assignRoles(String userId, List<String> roleIds) {
+        for (String roleId : roleIds) {
+            self.assignRole(userId, roleId);
+        }
     }
 
     @Transactional
