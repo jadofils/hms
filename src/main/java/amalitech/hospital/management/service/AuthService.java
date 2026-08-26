@@ -8,8 +8,10 @@ import amalitech.hospital.management.dto.auth.ForgotPasswordRequest;
 import amalitech.hospital.management.dto.auth.LoginRequest;
 import amalitech.hospital.management.dto.auth.LoginResponse;
 import amalitech.hospital.management.dto.auth.ResetPasswordRequest;
+import amalitech.hospital.management.enums.RoleName;
 import amalitech.hospital.management.event.PasswordChangedEvent;
 import amalitech.hospital.management.event.PasswordResetRequestedEvent;
+import amalitech.hospital.management.event.UserRoleMissingEvent;
 import amalitech.hospital.management.exception.runtime.BadRequestException;
 import amalitech.hospital.management.exception.runtime.NotFoundException;
 import amalitech.hospital.management.exception.runtime.UnauthorizedException;
@@ -19,6 +21,7 @@ import amalitech.hospital.management.model.user.UserSession;
 import amalitech.hospital.management.repository.user.UserRepository;
 import amalitech.hospital.management.repository.user.UserRoleRepository;
 import amalitech.hospital.management.repository.user.UserSessionRepository;
+import amalitech.hospital.management.repository.user.role.RoleRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -70,6 +73,15 @@ public class AuthService {
     private final ApplicationEventPublisher eventPublisher;
     private final SystemLogWriter systemLogWriter;
     private final StringRedisTemplate redisTemplate;
+    // Both HMS v5 — a brand-new Google-provisioned account's role bootstrap
+    // (createGoogleProvisionedUser) reuses the exact same
+    // UserService.assignDefaultGuestRole/InviteService.consumeInviteIfAny logic
+    // UserService.createUser already runs for self-registration, rather than a second,
+    // divergent copy of it here.
+    private final UserService userService;
+    private final InviteService inviteService;
+    // Only for notifyAdminsOfMissingRole's "who holds Admin right now" lookup.
+    private final RoleRepository roleRepository;
 
     /** Self-injected proxy reference, used only to call this class's own
      *  {@code @FindUserData}-annotated method through the Spring AOP proxy — see
@@ -120,11 +132,11 @@ public class AuthService {
      * {@code OAuth2LoginSuccessHandler} once Google's own handshake has already proven
      * the caller owns {@code email}. Finds the matching account by email, or creates one
      * on the fly if this is the first time this Google identity has ever logged in —
-     * same no-default-role rule as {@link amalitech.hospital.management.service.UserService#createUser}'s
-     * self-registration (an administrator still has to grant a role via
-     * {@code POST /api/v1/users/{userId}/roles/{roleId}} before the account can do
-     * anything), so a brand-new Google login throws the exact same "no assigned role"
-     * {@link UnauthorizedException} a brand-new password self-registration would.
+     * same role-bootstrap rule as {@link amalitech.hospital.management.service.UserService#createUser}'s
+     * self-registration (HMS v5): a live admin invite for this email wins outright,
+     * otherwise the account gets the generic Guest role automatically (see
+     * {@link #createGoogleProvisionedUser}), so a brand-new Google login actually
+     * completes instead of throwing "no assigned role" the way it originally did.
      *
      * <p>{@code passwordHash} gets a random, never-communicated BCrypt hash — this
      * account was never given a password to begin with, so there's nothing valid for
@@ -183,7 +195,17 @@ public class AuthService {
         user.setEmailVerifiedAt(now);
         user.setCreatedAt(now);
         user.setUpdatedAt(now);
-        return userRepository.save(user);
+        User saved = userRepository.save(user);
+
+        // HMS v5 — same role bootstrap as UserService.createUser's self-registration
+        // path: a live admin invite for this exact email wins outright; otherwise the
+        // account gets the generic Guest role automatically, so this first Google login
+        // can actually complete instead of hitting "no assigned role" every time.
+        inviteService.consumeInviteIfAny(email)
+                .ifPresentOrElse(
+                        roleId -> userService.assignRoleToNewAccount(saved, roleId),
+                        () -> userService.assignDefaultGuestRole(saved));
+        return saved;
     }
 
     /** {@code username} is required and unique, but Google only gives us an email and a
@@ -222,8 +244,16 @@ public class AuthService {
             throw new UnauthorizedException("Please verify your email before logging in");
         }
 
-        String role = primaryRole(user.getUserId())
-                .orElseThrow(() -> new UnauthorizedException("This account has no assigned role"));
+        Optional<String> primaryRole = primaryRole(user.getUserId());
+        if (primaryRole.isEmpty()) {
+            // Every brand-new self-service account now gets Guest automatically (see
+            // UserService.assignDefaultGuestRole) — reaching this means something
+            // unusual happened afterward (every role, including Guest, was explicitly
+            // revoked), not the routine "just signed up" case. Worth telling an admin.
+            notifyAdminsOfMissingRole(user);
+            throw new UnauthorizedException("This account has no assigned role");
+        }
+        String role = primaryRole.get();
 
         LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
 
@@ -357,13 +387,37 @@ public class AuthService {
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
-    /** A user can hold multiple roles; the token carries one, so the longest-held
-     *  (earliest-assigned) active role is treated as primary. */
+    /**
+     * A user can hold multiple roles; the token carries one, so the longest-held
+     * (earliest-assigned) active role is treated as primary — but a real staff role
+     * always wins over the generic Guest fallback, however it was ordered. Without
+     * this, an account seeded/created with Guest first and a real role assigned
+     * afterward (the exact shape {@code DataSeeder.seedPeople} produces once
+     * {@code UserService.createUser} auto-grants Guest to every new account) would show
+     * "Guest" as its primary role purely because of assignment order, not because
+     * that's the account's actual, intended access level.
+     */
     private Optional<String> primaryRole(String userId) {
-        return userRoleRepository.findByIdUserId(userId).stream()
+        List<UserRole> active = userRoleRepository.findByIdUserId(userId).stream()
                 .filter(ur -> ur.getRevokedAt() == null)
+                .toList();
+        return active.stream()
+                .filter(ur -> !RoleName.GUEST.getDbValue().equals(ur.getRole().getRoleName()))
                 .min(Comparator.comparing(UserRole::getAssignedAt))
+                .or(() -> active.stream().min(Comparator.comparing(UserRole::getAssignedAt)))
                 .map(ur -> ur.getRole().getRoleName());
+    }
+
+    /** See {@link #completeLogin}'s own comment for why reaching this is a genuine edge
+     *  case now rather than the routine outcome it used to be. Notifies every currently-
+     *  active Admin, not just one, since any of them could act on it. */
+    private void notifyAdminsOfMissingRole(User user) {
+        roleRepository.findByRoleName(RoleName.ADMIN.getDbValue()).ifPresent(adminRole ->
+                userRoleRepository.findByIdRoleId(adminRole.getRoleId()).stream()
+                        .filter(ur -> ur.getRevokedAt() == null)
+                        .forEach(ur -> eventPublisher.publishEvent(new UserRoleMissingEvent(
+                                ur.getUser().getEmail(), ur.getUser().getUsername(),
+                                user.getEmail(), user.getUsername(), user.getUserId()))));
     }
 
     /** A password reset invalidates every session issued before it — the old password
