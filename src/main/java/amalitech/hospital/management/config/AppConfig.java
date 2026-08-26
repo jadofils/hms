@@ -2,9 +2,15 @@ package amalitech.hospital.management.config;
 
 import io.swagger.v3.oas.models.Components;
 import io.swagger.v3.oas.models.OpenAPI;
+import io.swagger.v3.oas.models.Operation;
+import io.swagger.v3.oas.models.PathItem;
+import io.swagger.v3.oas.models.Paths;
 import io.swagger.v3.oas.models.info.Info;
+import io.swagger.v3.oas.models.responses.ApiResponse;
+import io.swagger.v3.oas.models.responses.ApiResponses;
 import io.swagger.v3.oas.models.security.SecurityRequirement;
 import io.swagger.v3.oas.models.security.SecurityScheme;
+import org.springdoc.core.customizers.GlobalOpenApiCustomizer;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -30,11 +36,15 @@ public class AppConfig {
                 .info(new Info()
                         .title("Hospital Management System API")
                         .version("v1")
-                        .description("REST API for the HMS backend. Endpoints are namespaced /api/v1/{resource}. "
+                        .description("### [Click here to sign in with Google](/oauth2/authorization/google)\n"
+                                + "Redirects straight to Google's account picker. After you approve, this page "
+                                + "will show a JSON body with your token — copy it, click \"Authorize\" above, "
+                                + "paste it in (no \"Bearer \" prefix), and every protected endpoint below works.\n\n"
+                                + "REST API for the HMS backend. Endpoints are namespaced /api/v1/{resource}. "
                                 + "Users & role/permission management is documented first; other domains "
                                 + "(patients, appointments, pharmacy, ...) follow the same convention as they're added. "
-                                + "Call POST /api/v1/auth/login, then click \"Authorize\" above and paste the "
-                                + "returned token (no \"Bearer \" prefix needed) to try out protected endpoints."))
+                                + "A token can also be obtained via POST /api/v1/auth/login instead of Google — "
+                                + "both return the same {\"data\":{\"token\":\"...\"}} shape."))
                 .components(new Components().addSecuritySchemes(BEARER_SCHEME, new SecurityScheme()
                         .type(SecurityScheme.Type.HTTP)
                         .scheme("bearer")
@@ -52,5 +62,48 @@ public class AppConfig {
     public PageableHandlerMethodArgumentResolverCustomizer pageableCustomizer(
             @Value("${app.page-size}") int defaultPageSize) {
         return resolver -> resolver.setFallbackPageable(PageRequest.of(0, defaultPageSize));
+    }
+
+    /**
+     * Manually documents Google's OAuth2 login entry point in the generated spec.
+     * Springdoc only ever introspects {@code @RestController} handler methods; this path
+     * is registered by Spring Security's {@code .oauth2Login(...)} DSL
+     * ({@code SecurityConfig}) instead — a filter that runs ahead of the
+     * {@code DispatcherServlet}, with no annotated method for springdoc to find — so
+     * without this it would never show up in Swagger at all. {@code GlobalOpenApiCustomizer}
+     * is springdoc's own extension point for exactly this: adding a synthetic path to the
+     * generated {@code OpenAPI} model alongside the ones it discovers automatically.
+     *
+     * <p>Deliberately doesn't also document {@code /login/oauth2/code/google} (the
+     * callback Google itself redirects to) as its own Swagger entry — a previous pass
+     * did, and it only confused callers into thinking it was something to fill in
+     * {@code code}/{@code state} for and Execute manually, when it's Google's own
+     * redirect target, never something a caller navigates to on its own. The one
+     * endpoint below already explains what that callback does with the code.
+     */
+    @Bean
+    public GlobalOpenApiCustomizer googleOAuth2EndpointsCustomizer() {
+        return openApi -> {
+            if (openApi.getPaths() == null) {
+                openApi.setPaths(new Paths());
+            }
+            openApi.getPaths()
+                    .addPathItem("/oauth2/authorization/google", new PathItem().get(
+                            new Operation()
+                                    .addTagsItem("Auth")
+                                    .summary("Start Google OAuth2 login")
+                                    .description("**[Click here to sign in with Google](/oauth2/authorization/google)** "
+                                            + "(not callable from \"Try it out\" below — open the link instead). "
+                                            + "Redirects to Google's consent screen; once approved, Google itself "
+                                            + "redirects back to this app (never something you call directly), "
+                                            + "which returns the login result as JSON: "
+                                            + "{\"status\":\"success\",\"data\":{\"token\":\"...\",\"userId\":\"...\","
+                                            + "\"username\":\"...\",\"role\":\"...\"}} on success (same shape POST "
+                                            + "/api/v1/auth/login returns), or a 401 error body if the account is "
+                                            + "deactivated or has no role.")
+                                    .responses(new ApiResponses()
+                                            .addApiResponse("302", new ApiResponse()
+                                                    .description("Redirect to Google's own consent screen")))));
+        };
     }
 }
