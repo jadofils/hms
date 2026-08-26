@@ -175,13 +175,6 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
-        <!-- Exposes /actuator/prometheus (Prometheus text-exposition format) alongside the
-             existing /actuator/metrics — the actuator starter above brings in Micrometer's
-             core API but no concrete registry that scrapes in that format without this. -->
-        <dependency>
-            <groupId>io.micrometer</groupId>
-            <artifactId>micrometer-registry-prometheus</artifactId>
-        </dependency>
     </dependencies>
 
 
