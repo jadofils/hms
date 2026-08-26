@@ -2,6 +2,7 @@ package amalitech.hospital.management.controller;
 
 import amalitech.hospital.management.annotation.RequirePermission;
 import amalitech.hospital.management.dto.common.ApiResult;
+import amalitech.hospital.management.dto.doctor.AssignDepartmentsRequest;
 import amalitech.hospital.management.dto.doctor.DoctorDepartmentRosterResponse;
 import amalitech.hospital.management.dto.doctor.DoctorRequest;
 import amalitech.hospital.management.dto.doctor.DoctorResponse;
@@ -133,16 +134,21 @@ public class DoctorController {
 
     // ── Department membership ────────────────────────────────────────────────
 
-    @PostMapping("/{doctorId}/departments/{departmentId}")
-    @Operation(summary = "Assign a doctor to a department")
-    @ApiResponse(responseCode = "204", description = "Department assigned")
-    @ApiResponse(responseCode = "404", description = "Doctor or department not found")
-    @ApiResponse(responseCode = "409", description = "Doctor already assigned to this department")
+    @PostMapping("/{doctorId}/departments")
+    @Operation(summary = "Assign a doctor to one or more departments at once",
+            description = "A doctor can belong to many departments simultaneously (and a department can "
+                    + "hold many doctors) — pass a single id or several; every id in the list is granted "
+                    + "in one call instead of one request per department. All-or-nothing: if any single "
+                    + "id doesn't exist or the doctor is already assigned to it, the whole call fails and "
+                    + "nothing in the list is assigned.")
+    @ApiResponse(responseCode = "204", description = "Departments assigned")
+    @ApiResponse(responseCode = "404", description = "Doctor or one of the departments not found")
+    @ApiResponse(responseCode = "409", description = "Doctor already assigned to one of the given departments")
     @RequirePermission(resource = Resource.DOCTORS, action = PermissionAction.UPDATE)
-    public ResponseEntity<Void> assignDepartment(
+    public ResponseEntity<Void> assignDepartments(
             @Parameter(description = "Doctor UUID") @PathVariable String doctorId,
-            @Parameter(description = "Department UUID") @PathVariable String departmentId) {
-        doctorService.assignDepartment(doctorId, departmentId);
+            @Valid @RequestBody AssignDepartmentsRequest request) {
+        doctorService.assignDepartments(doctorId, request.getDepartmentIds());
         return ResponseEntity.noContent().build();
     }
 
