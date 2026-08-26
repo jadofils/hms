@@ -3,7 +3,9 @@ package amalitech.hospital.management.service;
 import amalitech.hospital.management.event.AdminCreatedUserEvent;
 import amalitech.hospital.management.event.PasswordChangedEvent;
 import amalitech.hospital.management.event.PasswordResetRequestedEvent;
+import amalitech.hospital.management.event.UserInvitedEvent;
 import amalitech.hospital.management.event.UserRegisteredEvent;
+import amalitech.hospital.management.event.UserRoleMissingEvent;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -12,6 +14,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 
 /**
@@ -32,7 +36,7 @@ class MailEventListenerTest {
 
     @BeforeEach
     void setUp() {
-        listener = new MailEventListener(mailService);
+        listener = new MailEventListener(mailService, "http://localhost:3000");
     }
 
     @Test
@@ -68,5 +72,23 @@ class MailEventListenerTest {
         listener.onPasswordChanged(new PasswordChangedEvent("bob@example.com", "bob", changedAt));
 
         verify(mailService).sendPasswordChangedEmail("bob@example.com", "bob", changedAt);
+    }
+
+    @Test
+    void onUserInvited_sendsTheGenericNotificationToTheInvitedEmail() {
+        listener.onUserInvited(new UserInvitedEvent("newperson@example.com", "Doctor", "admin",
+                "http://localhost:3000/register?email=newperson%40example.com", 7));
+
+        verify(mailService).sendNotificationEmail(
+                eq("newperson@example.com"), eq("newperson@example.com"), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void onUserRoleMissing_sendsTheGenericNotificationToTheAdmin() {
+        listener.onUserRoleMissing(new UserRoleMissingEvent(
+                "admin@example.com", "admin", "bob@example.com", "bob", "user-1"));
+
+        verify(mailService).sendNotificationEmail(
+                eq("admin@example.com"), eq("admin"), any(), any(), any(), any(), any());
     }
 }
