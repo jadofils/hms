@@ -1,6 +1,6 @@
 # @EntityGraph N+1 Fix — Query Count Report
 
-HMS v5 added `@EntityGraph` to 12 repository finder methods across 6 real N+1 sites (see `docs/v5-report.md`). This measures the actual number of SQL statements Hibernate executes for two of them, via `Statistics.getQueryExecutionCount()` (real Postgres, real HTTP, `@SpringBootTest(webEnvironment = RANDOM_PORT)`).
+HMS v5 added `@EntityGraph` to 12 repository finder methods across 6 real N+1 sites (see `docs/v5/v5-report.md`). This measures the actual number of SQL statements Hibernate executes for two of them, via `Statistics.getQueryExecutionCount()` (real Postgres, real HTTP, `@SpringBootTest(webEnvironment = RANDOM_PORT)`).
 
 **Generated:** 2026-08-22T13:28:07.4189138
 
