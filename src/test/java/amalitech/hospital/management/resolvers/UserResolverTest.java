@@ -124,14 +124,14 @@ class UserResolverTest {
     }
 
     @Test
-    void assignRole_callsServiceThenReturnsRefreshedUser() {
+    void assignRoles_callsServiceThenReturnsRefreshedUser() {
         when(userService.getUser("user-1")).thenReturn(existingUser());
 
-        graphQlTester.document("mutation { assignRole(userId: \"user-1\", roleId: \"role-1\") { userId } }")
+        graphQlTester.document("mutation { assignRoles(userId: \"user-1\", roleIds: [\"role-1\"]) { userId } }")
                 .execute()
-                .path("assignRole.userId").entity(String.class).isEqualTo("user-1");
+                .path("assignRoles.userId").entity(String.class).isEqualTo("user-1");
 
-        verify(userService).assignRole(eq("user-1"), eq("role-1"));
+        verify(userService).assignRoles(eq("user-1"), eq(List.of("role-1")));
     }
 
     @Test
