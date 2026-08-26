@@ -10,6 +10,8 @@ import org.springframework.context.annotation.Import;
 import org.springframework.graphql.test.tester.GraphQlTester;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
+import java.util.List;
+
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -59,14 +61,14 @@ class DoctorResolverTest {
     }
 
     @Test
-    void assignDepartment_callsServiceThenReturnsRefreshedDoctor() {
+    void assignDepartments_callsServiceThenReturnsRefreshedDoctor() {
         when(doctorService.getDoctor("doctor-1")).thenReturn(existingDoctor());
 
-        graphQlTester.document("mutation { assignDepartment(doctorId: \"doctor-1\", departmentId: \"dept-1\") { doctorId } }")
+        graphQlTester.document("mutation { assignDepartments(doctorId: \"doctor-1\", departmentIds: [\"dept-1\"]) { doctorId } }")
                 .execute()
-                .path("assignDepartment.doctorId").entity(String.class).isEqualTo("doctor-1");
+                .path("assignDepartments.doctorId").entity(String.class).isEqualTo("doctor-1");
 
-        verify(doctorService).assignDepartment("doctor-1", "dept-1");
+        verify(doctorService).assignDepartments("doctor-1", List.of("dept-1"));
     }
 
     @Test
