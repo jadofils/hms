@@ -2,7 +2,21 @@
 
 One file per user story from the project's `ReadMe.md` (the delivery-criteria doc),
 explaining what the story asked for, how it was achieved, and exactly where in the
-codebase — plus a credentials reference for the seeded demo accounts.
+codebase — plus a credentials reference for the seeded demo accounts. This is the
+original/base pass (Epics 1–5 below); each later pass has its own requirements doc and
+implementation report, grouped by version:
+
+| Pass | Requirements | Implementation report | Focus |
+|---|---|---|---|
+| v2 | [`v2/Readme-v2.md`](v2/Readme-v2.md) | [`v2/v2-report.md`](v2/v2-report.md) | Spring Data JPA, transactions, query optimization, caching |
+| v4 | [`v4/README-V4.MD`](v4/README-V4.MD) | [`v4/v4-report.md`](v4/v4-report.md) | Spring Security, JWT, Google OAuth2, RBAC |
+| v5 | [`v5/ReadMe-v5.md`](v5/ReadMe-v5.md) | [`v5/v5-report.md`](v5/v5-report.md) | Async/`CompletableFuture`, events, connection pooling, `@EntityGraph` |
+
+Each report maps every Epic/User Story in its own requirements doc to what's actually
+implemented, where, and what was verified live — not just what the code happens to
+contain. (Note: "v2"/"v4"/"v5" name sequential passes over this project, each with their
+own internal Epic/Story numbering — unrelated to the *base* pass's own Epic 4 = GraphQL
+below, which predates and has nothing to do with the "v4" *security* pass.)
 
 | Story | Epic | Status |
 |---|---|---|
