@@ -46,13 +46,13 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p>{@code @Disabled} by default, same reasoning as the other benchmark tests in this
  * package: creates real rows in the shared dev/test database and isn't a correctness
- * gate. Re-run explicitly to regenerate {@code docs/entity-graph-performance-report.md}:
+ * gate. Re-run explicitly to regenerate {@code docs/v5/entity-graph-performance-report.md}:
  * <pre>{@code ./mvnw test -Dtest=EntityGraphBenchmarkTest}</pre>
  * (after commenting out the {@code @Disabled} line below).
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
-@Disabled("Manual benchmark for docs/entity-graph-performance-report.md — see class Javadoc")
+@Disabled("Manual benchmark for docs/v5/entity-graph-performance-report.md — see class Javadoc")
 class EntityGraphBenchmarkTest {
 
     private static final int PRESCRIPTION_ROWS = 5;
@@ -111,7 +111,7 @@ class EntityGraphBenchmarkTest {
 
         String report = renderReport(prescriptionQueries, patientProfileQueries);
         System.out.println(report);
-        Path reportPath = Path.of("docs", "entity-graph-performance-report.md");
+        Path reportPath = Path.of("docs", "v5", "entity-graph-performance-report.md");
         Files.writeString(reportPath, report, StandardCharsets.UTF_8);
         assertThat(reportPath).exists();
 
@@ -194,7 +194,7 @@ class EntityGraphBenchmarkTest {
         StringBuilder sb = new StringBuilder();
         sb.append("# @EntityGraph N+1 Fix — Query Count Report\n\n");
         sb.append("HMS v5 added `@EntityGraph` to 12 repository finder methods across 6 real N+1 ")
-                .append("sites (see `docs/v5-report.md`). This measures the actual number of SQL ")
+                .append("sites (see `docs/v5/v5-report.md`). This measures the actual number of SQL ")
                 .append("statements Hibernate executes for two of them, via `Statistics.getQueryExecutionCount()` ")
                 .append("(real Postgres, real HTTP, `@SpringBootTest(webEnvironment = RANDOM_PORT)`).\n\n");
         sb.append("**Generated:** ").append(LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME))
