@@ -103,7 +103,9 @@ extend type Mutation {
     updateDoctor(doctorId: ID!, input: DoctorInput!): Doctor!
     patchDoctor(doctorId: ID!, input: PatchDoctorInput!): Doctor!
     deleteDoctor(doctorId: ID!): Boolean!
-    assignDepartment(doctorId: ID!, departmentId: ID!): Doctor!
+    """Grants every id in departmentIds to the doctor in one call — pass a single-element
+    list to assign just one department. All-or-nothing (see DoctorService.assignDepartments)."""
+    assignDepartments(doctorId: ID!, departmentIds: [ID!]!): Doctor!
     removeDepartment(doctorId: ID!, departmentId: ID!): Doctor!
 
     createDepartment(input: DepartmentInput!): Department!
