@@ -26,9 +26,12 @@ import io.micrometer.core.annotation.Timed;
  * class + {@code @Valid} below), rather than a separate, unvalidated GraphQL-only input
  * path.
  *
- * <p>{@code assignRole}/{@code revokeRole} mirror {@code UserController}'s own endpoints,
+ * <p>{@code assignRoles}/{@code revokeRole} mirror {@code UserController}'s own endpoints,
  * which return no body (204) — here they return the refreshed {@code User} instead,
- * since a GraphQL mutation is expected to return *something* selectable.
+ * since a GraphQL mutation is expected to return *something* selectable. There's no
+ * single-role {@code assignRole} mutation — {@code assignRoles} takes a one-element list
+ * for that case, same as {@code UserController}'s REST side only exposes the bulk
+ * {@code POST /{userId}/roles} now, not a separate single-role endpoint.
  *
  * <p>{@code roles} and {@code doctor} on the {@code User} GraphQL type need no
  * {@code @SchemaMapping} of their own — {@link UserService#getUsers} and
@@ -79,8 +82,8 @@ public class UserResolver {
     }
 
     @MutationMapping
-    public UserResponse assignRole(@Argument String userId, @Argument String roleId) {
-        userService.assignRole(userId, roleId);
+    public UserResponse assignRoles(@Argument String userId, @Argument List<String> roleIds) {
+        userService.assignRoles(userId, roleIds);
         return userService.getUser(userId);
     }
 
