@@ -3,7 +3,7 @@
 This maps every Epic/User Story in [`README-V4.MD`](README-V4.MD) to what's actually
 implemented in this codebase, where, and — for each acceptance criterion this pass
 touched — what was verified live (curl output pasted below, not "should work"
-hand-waving), the same evidence-first convention [`v2-report.md`](v2-report.md) followed.
+hand-waving), the same evidence-first convention [`v2-report.md`](../v2/v2-report.md) followed.
 
 Most of the JWT/BCrypt foundation already existed from earlier passes. What's genuinely
 new this pass: Google OAuth2 login end-to-end, global CORS configuration,
@@ -336,7 +336,7 @@ that I can track login attempts and access patterns.*
 | Acceptance criterion | Status | Evidence |
 |---|---|---|
 | Auth success/failure logging | ✅ New this pass | `AuthService.logSecurityEvent`, `SystemLogWriter` |
-| Token usage / endpoint access frequency reports | ✅ Already existed, now documented against this criterion | `@Timed("hms.rest.requests"/"hms.graphql.requests")` on every controller/resolver, `/actuator/metrics/...`, `/actuator/prometheus` |
+| Token usage / endpoint access frequency reports | ✅ Already existed, now documented against this criterion | `@Timed("hms.rest.requests"/"hms.graphql.requests")` on every controller/resolver, `/actuator/metrics/...` |
 | Logs reviewed to detect brute-force/unusual access | ✅ Live-verified | See below |
 
 **Why a dedicated log, alongside the pre-existing generic one.** `LoggingAspect`'s own
