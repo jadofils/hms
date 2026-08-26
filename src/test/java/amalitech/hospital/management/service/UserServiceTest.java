@@ -41,6 +41,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -58,6 +61,7 @@ class UserServiceTest {
     @Mock private ApplicationEventPublisher eventPublisher;
     @Mock private StringRedisTemplate redisTemplate;
     @Mock private ValueOperations<String, String> valueOperations;
+    @Mock private InviteService inviteService;
     // Stands in for the self-injected AOP proxy reference — findUsersPage is
     // @FindUserData-annotated and normally intercepted by FindUserDataAspect; mocked
     // here at the boundary rather than exercised for real (see CLAUDE.md's Testing section).
@@ -70,7 +74,21 @@ class UserServiceTest {
     @BeforeEach
     void setUp() {
         userService = new UserService(userRepository, userRoleRepository, roleRepository, roleService,
-                doctorService, passwordEncoder, eventPublisher, redisTemplate, "http://localhost:3000", 24L, self);
+                doctorService, passwordEncoder, eventPublisher, redisTemplate, inviteService,
+                "http://localhost:3000", 24L, self);
+
+        // HMS v5 — createUser's role bootstrap runs on every call now; these lenient
+        // defaults make it a transparent no-op for tests that don't care about it
+        // specifically (see the dedicated "── role bootstrap ──" tests below for the
+        // cases that do).
+        lenient().when(inviteService.consumeInviteIfAny(anyString())).thenReturn(Optional.empty());
+        Role guestRole = new Role();
+        guestRole.setRoleId("guest-role-id");
+        guestRole.setRoleName("Guest");
+        lenient().when(roleRepository.findByRoleName("Guest")).thenReturn(Optional.of(guestRole));
+        // assignRoleToNewAccount looks the role back up by id (to load the full Role
+        // for the UserRole.role association), not by name.
+        lenient().when(roleRepository.findById("guest-role-id")).thenReturn(Optional.of(guestRole));
 
         existingUser = new User();
         existingUser.setUserId("user-1");
@@ -365,6 +383,72 @@ class UserServiceTest {
         assertThat(event.getExpiryHours()).isEqualTo(24);
     }
 
+    // ── createUser's role bootstrap (HMS v5) ────────────────────────────────
+
+    @Test
+    void createUser_assignsTheDefaultGuestRole_whenNoInvitePending() {
+        UserRequest request = requestFor("bob", "bob@example.com", "Passw0rd!");
+        when(userRepository.existsByUsername("bob")).thenReturn(false);
+        when(userRepository.existsByEmail("bob@example.com")).thenReturn(false);
+        when(userRepository.save(any(User.class))).thenAnswer(inv -> {
+            User saved = inv.getArgument(0);
+            saved.setUserId("user-generated-id");
+            return saved;
+        });
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(inviteService.consumeInviteIfAny("bob@example.com")).thenReturn(Optional.empty());
+
+        userService.createUser(request);
+
+        ArgumentCaptor<UserRole> captor = ArgumentCaptor.forClass(UserRole.class);
+        verify(userRoleRepository).save(captor.capture());
+        assertThat(captor.getValue().getRole().getRoleName()).isEqualTo("Guest");
+        assertThat(captor.getValue().getId().getUserId()).isEqualTo("user-generated-id");
+    }
+
+    @Test
+    void createUser_assignsTheInvitedRoleInstead_whenALiveInviteExistsForThisEmail() {
+        UserRequest request = requestFor("bob", "bob@example.com", "Passw0rd!");
+        when(userRepository.existsByUsername("bob")).thenReturn(false);
+        when(userRepository.existsByEmail("bob@example.com")).thenReturn(false);
+        when(userRepository.save(any(User.class))).thenAnswer(inv -> {
+            User saved = inv.getArgument(0);
+            saved.setUserId("user-generated-id");
+            return saved;
+        });
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(inviteService.consumeInviteIfAny("bob@example.com")).thenReturn(Optional.of("invited-role-id"));
+        Role doctorRole = new Role();
+        doctorRole.setRoleId("invited-role-id");
+        doctorRole.setRoleName("Doctor");
+        when(roleRepository.findById("invited-role-id")).thenReturn(Optional.of(doctorRole));
+
+        userService.createUser(request);
+
+        ArgumentCaptor<UserRole> captor = ArgumentCaptor.forClass(UserRole.class);
+        verify(userRoleRepository).save(captor.capture());
+        assertThat(captor.getValue().getRole().getRoleName()).isEqualTo("Doctor");
+        verify(roleRepository, never()).findByRoleName("Guest");
+    }
+
+    // ── assignRoleToNewAccount / assignDefaultGuestRole ─────────────────────
+
+    @Test
+    void assignRoleToNewAccount_throwsNotFound_whenRoleAbsent() {
+        when(roleRepository.findById("missing-role")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> userService.assignRoleToNewAccount(existingUser, "missing-role"))
+                .isInstanceOf(NotFoundException.class);
+    }
+
+    @Test
+    void assignDefaultGuestRole_throwsIllegalState_whenGuestRoleNotSeeded() {
+        when(roleRepository.findByRoleName("Guest")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> userService.assignDefaultGuestRole(existingUser))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
     // ── createUserByAdmin ────────────────────────────────────────────────────
 
     @Test
@@ -657,6 +741,31 @@ class UserServiceTest {
         UserRole saved = captor.getValue();
         assertThat(saved.getId()).isEqualTo(idFor("user-1", "role-1"));
         assertThat(saved.getRevokedAt()).isNull();
+    }
+
+    // ── assignRoles (bulk) ───────────────────────────────────────────────────
+
+    @Test
+    void assignRoles_delegatesToSelfAssignRole_forEveryIdInOrder() {
+        userService.assignRoles("user-1", List.of("role-1", "role-2", "role-3"));
+
+        verify(self).assignRole("user-1", "role-1");
+        verify(self).assignRole("user-1", "role-2");
+        verify(self).assignRole("user-1", "role-3");
+    }
+
+    @Test
+    void assignRoles_propagatesTheFailure_whenOneIdIsAlreadyHeld() {
+        doNothing().when(self).assignRole("user-1", "role-1");
+        doThrow(new ConflictException("User already holds this role"))
+                .when(self).assignRole("user-1", "role-2");
+
+        assertThatThrownBy(() -> userService.assignRoles("user-1", List.of("role-1", "role-2", "role-3")))
+                .isInstanceOf(ConflictException.class);
+
+        verify(self).assignRole("user-1", "role-1");
+        verify(self).assignRole("user-1", "role-2");
+        verify(self, never()).assignRole("user-1", "role-3"); // never reached — the loop stops at role-2
     }
 
     @Test
