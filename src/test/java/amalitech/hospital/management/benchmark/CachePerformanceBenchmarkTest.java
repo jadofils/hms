@@ -51,7 +51,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
-@Disabled("Manual benchmark for docs/cache-performance-report.md — see class Javadoc")
+@Disabled("Manual benchmark for docs/v2/cache-performance-report.md — see class Javadoc")
 class CachePerformanceBenchmarkTest {
 
     private static final int WARM_CALLS = 30;
@@ -108,7 +108,7 @@ class CachePerformanceBenchmarkTest {
 
         String report = renderReport(missMs, avgHitMs, p95HitMs, speedup);
         System.out.println(report);
-        Path reportPath = Path.of("docs", "cache-performance-report.md");
+        Path reportPath = Path.of("docs", "v2", "cache-performance-report.md");
         Files.writeString(reportPath, report, StandardCharsets.UTF_8);
         assertThat(reportPath).exists();
     }
