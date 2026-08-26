@@ -29,6 +29,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -390,6 +391,31 @@ class DoctorServiceTest {
         doctorService.assignDepartment("doctor-1", "dept-1");
 
         assertThat(existingDoctor.getDepartments()).contains(existingDepartment);
+    }
+
+    // ── assignDepartments (bulk) ─────────────────────────────────────────────
+
+    @Test
+    void assignDepartments_delegatesToSelfAssignDepartment_forEveryIdInOrder() {
+        doctorService.assignDepartments("doctor-1", List.of("dept-1", "dept-2", "dept-3"));
+
+        verify(self).assignDepartment("doctor-1", "dept-1");
+        verify(self).assignDepartment("doctor-1", "dept-2");
+        verify(self).assignDepartment("doctor-1", "dept-3");
+    }
+
+    @Test
+    void assignDepartments_propagatesTheFailure_whenOneIdIsAlreadyAssigned() {
+        doNothing().when(self).assignDepartment("doctor-1", "dept-1");
+        doThrow(new ConflictException("Doctor is already assigned to this department"))
+                .when(self).assignDepartment("doctor-1", "dept-2");
+
+        assertThatThrownBy(() -> doctorService.assignDepartments("doctor-1", List.of("dept-1", "dept-2", "dept-3")))
+                .isInstanceOf(ConflictException.class);
+
+        verify(self).assignDepartment("doctor-1", "dept-1");
+        verify(self).assignDepartment("doctor-1", "dept-2");
+        verify(self, never()).assignDepartment("doctor-1", "dept-3"); // never reached — the loop stops at dept-2
     }
 
     @Test
