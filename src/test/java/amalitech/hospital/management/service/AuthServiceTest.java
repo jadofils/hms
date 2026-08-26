@@ -9,6 +9,7 @@ import amalitech.hospital.management.dto.auth.LoginResponse;
 import amalitech.hospital.management.dto.auth.ResetPasswordRequest;
 import amalitech.hospital.management.event.PasswordChangedEvent;
 import amalitech.hospital.management.event.PasswordResetRequestedEvent;
+import amalitech.hospital.management.event.UserRoleMissingEvent;
 import amalitech.hospital.management.exception.runtime.BadRequestException;
 import amalitech.hospital.management.exception.runtime.NotFoundException;
 import amalitech.hospital.management.exception.runtime.UnauthorizedException;
@@ -19,6 +20,7 @@ import amalitech.hospital.management.model.user.role.Role;
 import amalitech.hospital.management.repository.user.UserRepository;
 import amalitech.hospital.management.repository.user.UserRoleRepository;
 import amalitech.hospital.management.repository.user.UserSessionRepository;
+import amalitech.hospital.management.repository.user.role.RoleRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -42,6 +44,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -59,6 +62,9 @@ class AuthServiceTest {
     @Mock private StringRedisTemplate redisTemplate;
     @Mock private ValueOperations<String, String> valueOperations;
     @Mock private HttpServletRequest httpServletRequest;
+    @Mock private UserService userService;
+    @Mock private InviteService inviteService;
+    @Mock private RoleRepository roleRepository;
     // Stands in for the self-injected AOP proxy reference — findUserByEmail is
     // @FindUserData-annotated and normally intercepted by FindUserDataAspect; mocked
     // here at the boundary rather than exercised for real (see CLAUDE.md's Testing section).
@@ -72,8 +78,14 @@ class AuthServiceTest {
     @BeforeEach
     void setUp() {
         authService = new AuthService(userRepository, userRoleRepository, userSessionRepository,
-                passwordEncoder, jwtService, eventPublisher, systemLogWriter, redisTemplate, self,
-                "http://localhost:3000");
+                passwordEncoder, jwtService, eventPublisher, systemLogWriter, redisTemplate,
+                userService, inviteService, roleRepository, self, "http://localhost:3000");
+
+        // HMS v5 — createGoogleProvisionedUser's role bootstrap runs on every
+        // loginWithGoogle-creates-a-new-account call now; this lenient default makes it
+        // a transparent no-op for tests that don't care about it specifically (see the
+        // dedicated tests below for the ones that do).
+        lenient().when(inviteService.consumeInviteIfAny(anyString())).thenReturn(Optional.empty());
 
         existingUser = new User();
         existingUser.setUserId("user-1");
@@ -238,21 +250,146 @@ class AuthServiceTest {
                 .isInstanceOf(UnauthorizedException.class);
     }
 
+    @Test
+    void login_prefersEarliestNonGuestRole_evenWhenGuestWasAssignedFirst() {
+        // The exact shape DataSeeder.seedPeople now produces: UserService.createUser
+        // auto-grants Guest first, then the seeded caller's real role is assigned
+        // afterward — the token must still say "Admin", not "Guest", purely because of
+        // assignment order.
+        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(existingUser));
+        when(passwordEncoder.matches("pw", "hashed-pw")).thenReturn(true);
+
+        Role guestRole = new Role();
+        guestRole.setRoleId("guest-role-id");
+        guestRole.setRoleName("Guest");
+        UserRole guestAssignment = assignment(guestRole);
+        guestAssignment.setAssignedAt(LocalDateTime.now().minusMinutes(5));
+        UserRole adminAssignment = assignment(adminRole);
+        adminAssignment.setAssignedAt(LocalDateTime.now());
+        when(userRoleRepository.findByIdUserId("user-1")).thenReturn(List.of(guestAssignment, adminAssignment));
+
+        when(jwtService.getExpiryHours()).thenReturn(8L);
+        when(userSessionRepository.save(any(UserSession.class))).thenAnswer(inv -> {
+            UserSession session = inv.getArgument(0);
+            session.setSessionId("session-1");
+            return session;
+        });
+        when(jwtService.generateToken(anyString(), anyString(), anyString(), anyString())).thenReturn("token");
+
+        LoginResponse response = authService.login(loginRequest("alice", "pw"), httpServletRequest);
+
+        assertThat(response.getRole()).isEqualTo("Admin");
+    }
+
+    @Test
+    void login_fallsBackToGuest_whenGuestIsTheOnlyRoleHeld() {
+        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(existingUser));
+        when(passwordEncoder.matches("pw", "hashed-pw")).thenReturn(true);
+        Role guestRole = new Role();
+        guestRole.setRoleId("guest-role-id");
+        guestRole.setRoleName("Guest");
+        when(userRoleRepository.findByIdUserId("user-1")).thenReturn(List.of(assignment(guestRole)));
+        when(jwtService.getExpiryHours()).thenReturn(8L);
+        when(userSessionRepository.save(any(UserSession.class))).thenAnswer(inv -> {
+            UserSession session = inv.getArgument(0);
+            session.setSessionId("session-1");
+            return session;
+        });
+        when(jwtService.generateToken(anyString(), anyString(), eq("Guest"), anyString())).thenReturn("token");
+
+        LoginResponse response = authService.login(loginRequest("alice", "pw"), httpServletRequest);
+
+        assertThat(response.getRole()).isEqualTo("Guest");
+    }
+
+    @Test
+    void login_notifiesEveryActiveAdmin_whenNoRoleAssignedAtAll() {
+        // HMS v5 — a brand-new account always gets Guest automatically now, so reaching
+        // "no assigned role" means every role (including Guest) was explicitly revoked
+        // afterward — a genuine edge case worth an admin's attention.
+        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(existingUser));
+        when(passwordEncoder.matches("pw", "hashed-pw")).thenReturn(true);
+        when(userRoleRepository.findByIdUserId("user-1")).thenReturn(List.of());
+        when(roleRepository.findByRoleName("Admin")).thenReturn(Optional.of(adminRole));
+
+        User admin1 = new User();
+        admin1.setUserId("admin-1");
+        admin1.setUsername("admin1");
+        admin1.setEmail("admin1@example.com");
+        User admin2 = new User();
+        admin2.setUserId("admin-2");
+        admin2.setUsername("admin2");
+        admin2.setEmail("admin2@example.com");
+        UserRole adminAssignment1 = new UserRole();
+        adminAssignment1.setUser(admin1);
+        adminAssignment1.setRole(adminRole);
+        UserRole adminAssignment2 = new UserRole();
+        adminAssignment2.setUser(admin2);
+        adminAssignment2.setRole(adminRole);
+        UserRole revokedAdminAssignment = new UserRole();
+        revokedAdminAssignment.setUser(admin2);
+        revokedAdminAssignment.setRole(adminRole);
+        revokedAdminAssignment.setRevokedAt(LocalDateTime.now());
+        when(userRoleRepository.findByIdRoleId("role-1")).thenReturn(List.of(adminAssignment1, adminAssignment2));
+
+        assertThatThrownBy(() -> authService.login(loginRequest("alice", "pw"), httpServletRequest))
+                .isInstanceOf(UnauthorizedException.class)
+                .hasMessageContaining("no assigned role");
+
+        ArgumentCaptor<UserRoleMissingEvent> captor = ArgumentCaptor.forClass(UserRoleMissingEvent.class);
+        verify(eventPublisher, org.mockito.Mockito.times(2)).publishEvent(captor.capture());
+        List<String> notifiedAdminEmails = captor.getAllValues().stream()
+                .map(UserRoleMissingEvent::getAdminEmail).toList();
+        assertThat(notifiedAdminEmails).containsExactlyInAnyOrder("admin1@example.com", "admin2@example.com");
+        assertThat(captor.getAllValues().get(0).getPendingUserEmail()).isEqualTo("alice@example.com");
+    }
+
+    @Test
+    void login_doesNotNotifyAnyone_whenNoAdminRoleSeededAtAll() {
+        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(existingUser));
+        when(passwordEncoder.matches("pw", "hashed-pw")).thenReturn(true);
+        when(userRoleRepository.findByIdUserId("user-1")).thenReturn(List.of());
+        when(roleRepository.findByRoleName("Admin")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> authService.login(loginRequest("alice", "pw"), httpServletRequest))
+                .isInstanceOf(UnauthorizedException.class);
+
+        verify(eventPublisher, never()).publishEvent(any(UserRoleMissingEvent.class));
+    }
+
     // ── loginWithGoogle ──────────────────────────────────────────────────────
 
     @Test
-    void loginWithGoogle_createsANewUser_whenNoAccountMatchesTheEmail() {
+    void loginWithGoogle_createsANewUserAndAssignsTheDefaultGuestRole_whenNoAccountMatchesTheEmail() {
         when(userRepository.findByEmail("newperson@example.com")).thenReturn(Optional.empty());
         when(userRepository.existsByUsername("newperson")).thenReturn(false);
-        when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(userRepository.save(any(User.class))).thenAnswer(inv -> {
+            User saved = inv.getArgument(0);
+            saved.setUserId("newperson-id"); // simulates @GeneratedValue on insert
+            return saved;
+        });
         when(passwordEncoder.encode(anyString())).thenReturn("random-bcrypt-hash");
+        // Simulates what the (mocked) UserService.assignDefaultGuestRole would have
+        // actually inserted in the real system — HMS v5, a brand-new Google login now
+        // completes successfully instead of hitting "no assigned role".
+        Role guestRole = new Role();
+        guestRole.setRoleId("guest-role-id");
+        guestRole.setRoleName("Guest");
+        when(userRoleRepository.findByIdUserId(anyString())).thenReturn(List.of(assignment(guestRole)));
+        when(jwtService.getExpiryHours()).thenReturn(8L);
+        when(userSessionRepository.save(any(UserSession.class))).thenAnswer(inv -> {
+            UserSession session = inv.getArgument(0);
+            session.setSessionId("session-1");
+            return session;
+        });
+        when(jwtService.generateToken(anyString(), anyString(), eq("Guest"), anyString())).thenReturn("signed-token");
 
-        // Brand-new account has no role yet — same no-default-role outcome a brand-new
-        // password self-registration gets, not a real authentication failure.
-        assertThatThrownBy(() -> authService.loginWithGoogle(
-                "newperson@example.com", "New Person", httpServletRequest))
-                .isInstanceOf(UnauthorizedException.class)
-                .hasMessageContaining("no assigned role");
+        LoginResponse response = authService.loginWithGoogle(
+                "newperson@example.com", "New Person", httpServletRequest);
+
+        assertThat(response.getRole()).isEqualTo("Guest");
+        verify(userService).assignDefaultGuestRole(any(User.class));
+        verify(inviteService).consumeInviteIfAny("newperson@example.com");
 
         ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
         verify(userRepository).save(captor.capture());
@@ -264,14 +401,59 @@ class AuthServiceTest {
     }
 
     @Test
+    void loginWithGoogle_assignsTheInvitedRoleInstead_whenALiveInviteExistsForThisEmail() {
+        when(userRepository.findByEmail("newperson@example.com")).thenReturn(Optional.empty());
+        when(userRepository.existsByUsername("newperson")).thenReturn(false);
+        when(userRepository.save(any(User.class))).thenAnswer(inv -> {
+            User saved = inv.getArgument(0);
+            saved.setUserId("newperson-id"); // simulates @GeneratedValue on insert
+            return saved;
+        });
+        when(passwordEncoder.encode(anyString())).thenReturn("random-bcrypt-hash");
+        when(inviteService.consumeInviteIfAny("newperson@example.com")).thenReturn(Optional.of("doctor-role-id"));
+        Role doctorRole = new Role();
+        doctorRole.setRoleId("doctor-role-id");
+        doctorRole.setRoleName("Doctor");
+        when(userRoleRepository.findByIdUserId(anyString())).thenReturn(List.of(assignment(doctorRole)));
+        when(jwtService.getExpiryHours()).thenReturn(8L);
+        when(userSessionRepository.save(any(UserSession.class))).thenAnswer(inv -> {
+            UserSession session = inv.getArgument(0);
+            session.setSessionId("session-1");
+            return session;
+        });
+        when(jwtService.generateToken(anyString(), anyString(), eq("Doctor"), anyString())).thenReturn("token");
+
+        LoginResponse response = authService.loginWithGoogle(
+                "newperson@example.com", "New Person", httpServletRequest);
+
+        assertThat(response.getRole()).isEqualTo("Doctor");
+        verify(userService).assignRoleToNewAccount(any(User.class), eq("doctor-role-id"));
+        verify(userService, never()).assignDefaultGuestRole(any());
+    }
+
+    @Test
     void loginWithGoogle_appendsDigits_whenTheDerivedUsernameIsAlreadyTaken() {
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.empty());
         when(userRepository.existsByUsername("alice")).thenReturn(true);
         when(userRepository.existsByUsername("alice2")).thenReturn(false);
-        when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(userRepository.save(any(User.class))).thenAnswer(inv -> {
+            User saved = inv.getArgument(0);
+            saved.setUserId("alice2-id"); // simulates @GeneratedValue on insert
+            return saved;
+        });
+        Role guestRole = new Role();
+        guestRole.setRoleId("guest-role-id");
+        guestRole.setRoleName("Guest");
+        when(userRoleRepository.findByIdUserId(anyString())).thenReturn(List.of(assignment(guestRole)));
+        when(jwtService.getExpiryHours()).thenReturn(8L);
+        when(userSessionRepository.save(any(UserSession.class))).thenAnswer(inv -> {
+            UserSession session = inv.getArgument(0);
+            session.setSessionId("session-1");
+            return session;
+        });
+        when(jwtService.generateToken(anyString(), anyString(), anyString(), anyString())).thenReturn("token");
 
-        assertThatThrownBy(() -> authService.loginWithGoogle("alice@example.com", "Alice", httpServletRequest))
-                .isInstanceOf(UnauthorizedException.class);
+        authService.loginWithGoogle("alice@example.com", "Alice", httpServletRequest);
 
         ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
         verify(userRepository).save(captor.capture());
