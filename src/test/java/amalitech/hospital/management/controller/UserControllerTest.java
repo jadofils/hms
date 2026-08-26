@@ -94,7 +94,7 @@ class UserControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    void assignAndRevokeRole_throughRealHttpEndpoints() throws Exception {
+    void assignRolesAndRevokeRole_throughRealHttpEndpoints() throws Exception {
         String token = adminToken();
         String username = "testuser" + uniqueDigits(6);
 
@@ -122,8 +122,10 @@ class UserControllerTest extends AbstractControllerTest {
         mockMvc.perform(get("/api/v1/users/" + userId + "/roles").header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(post("/api/v1/users/" + userId + "/roles/" + roleId)
-                        .header("Authorization", "Bearer " + token))
+        mockMvc.perform(post("/api/v1/users/" + userId + "/roles")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"roleIds\":[\"" + roleId + "\"]}"))
                 .andExpect(status().isNoContent());
 
         mockMvc.perform(get("/api/v1/users/" + userId + "/roles").header("Authorization", "Bearer " + token))
