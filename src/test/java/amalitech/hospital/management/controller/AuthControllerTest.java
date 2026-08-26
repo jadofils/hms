@@ -99,7 +99,7 @@ class AuthControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    void register_withEmail_blocksLoginUntilVerified_thenStillNeedsARoleAfterward() throws Exception {
+    void register_withEmail_blocksLoginUntilVerified_thenGetsGuestUntilAnAdminUpgradesIt() throws Exception {
         String username = "authver" + uniqueDigits(6);
         String email = "authver" + uniqueDigits(6) + "@example.com";
         String registerBody = "{\"username\":\"" + username + "\",\"password\":\"TestPass1!\",\"email\":\"" + email + "\"}";
@@ -111,7 +111,8 @@ class AuthControllerTest extends AbstractControllerTest {
         JsonNode registered = objectMapper.readTree(registerResult.getResponse().getContentAsString());
         String userId = registered.at("/data/userId").asText();
 
-        // Blocked before verification — never reaches the "no role assigned" branch.
+        // Blocked before verification — never reaches the role-selection step at all,
+        // Guest or otherwise.
         String loginBody = "{\"username\":\"" + username + "\",\"password\":\"TestPass1!\"}";
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -127,14 +128,18 @@ class AuthControllerTest extends AbstractControllerTest {
         mockMvc.perform(get("/api/v1/auth/verify-email").param("token", token))
                 .andExpect(status().isOk());
 
-        // Verified now, but still no role — the two gates are independent.
+        // HMS v5 — registration itself already auto-granted the Guest role (see
+        // UserService.createUser), so verified is now enough on its own for login to
+        // succeed, with "Guest" as the token's role.
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(loginBody))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.role").value("Guest"));
 
         String admin = adminToken();
-        String roleBody = "{\"roleName\":\"TestRole" + uniqueDigits(9) + "\"}";
+        String roleName = "TestRole" + uniqueDigits(9);
+        String roleBody = "{\"roleName\":\"" + roleName + "\"}";
         MvcResult roleResult = mockMvc.perform(post("/api/v1/roles")
                         .header("Authorization", "Bearer " + admin)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -142,15 +147,19 @@ class AuthControllerTest extends AbstractControllerTest {
                 .andExpect(status().isCreated())
                 .andReturn();
         String roleId = objectMapper.readTree(roleResult.getResponse().getContentAsString()).at("/data/roleId").asText();
-        mockMvc.perform(post("/api/v1/users/" + userId + "/roles/" + roleId)
-                        .header("Authorization", "Bearer " + admin))
+        mockMvc.perform(post("/api/v1/users/" + userId + "/roles")
+                        .header("Authorization", "Bearer " + admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"roleIds\":[\"" + roleId + "\"]}"))
                 .andExpect(status().isNoContent());
 
-        // Verified AND role-assigned — login finally succeeds.
+        // Holding both Guest and the newly-assigned real role now — AuthService.primaryRole
+        // always prefers the real one, so the token reflects that, not Guest.
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(loginBody))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.role").value(roleName));
     }
 
     @Test
@@ -284,8 +293,10 @@ class AuthControllerTest extends AbstractControllerTest {
         JsonNode role = objectMapper.readTree(roleResult.getResponse().getContentAsString());
         String roleId = role.at("/data/roleId").asText();
 
-        mockMvc.perform(post("/api/v1/users/" + userId + "/roles/" + roleId)
-                        .header("Authorization", "Bearer " + admin))
+        mockMvc.perform(post("/api/v1/users/" + userId + "/roles")
+                        .header("Authorization", "Bearer " + admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"roleIds\":[\"" + roleId + "\"]}"))
                 .andExpect(status().isNoContent());
 
         return loginAs(username, password);
