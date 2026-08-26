@@ -24,7 +24,10 @@ spring:
     driver-class-name: org.postgresql.Driver
     hikari:
       pool-name: HMS-Pool
-      maximum-pool-size: 20
+      # DB_POOL_MAX_SIZE/DB_POOL_MIN_IDLE — tunable via .env like every other
+      # environment-specific datasource setting above, defaulting to this pass's own
+      # chosen values (see the HMS v5 note below) when the caller doesn't set them.
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:20}
       # HMS v5 — bumped from 1: HikariCP's own docs recommend a fixed-size pool
       # (minimum-idle == maximum-pool-size) for predictable latency under bursty load,
       # and this pass adds two new bursty concurrent-connection-demand sources: the
@@ -32,7 +35,7 @@ spring:
       # PatientService.getPatient's parallel CompletableFuture fan-out. Not fully fixed
       # (== 20) to avoid over-provisioning idle connections for this project's actual
       # course-project load — 10 is a deliberate middle ground, not the textbook ideal.
-      minimum-idle: 10
+      minimum-idle: ${DB_POOL_MIN_IDLE:10}
       connection-timeout: 20000    # ms — how long to wait for a connection before throwing
       idle-timeout: 30000          # ms — how long an idle connection sits before eviction
       max-lifetime: 1800000        # ms — 30 min, max lifetime of any connection
@@ -43,7 +46,7 @@ spring:
     # `true`). OSIV keeps a Hibernate session bound for the whole request, which is
     # exactly what let lazy-load N+1s fire silently during response serialization
     # instead of failing loudly at the point they actually happen — see every
-    # `@EntityGraph` added this pass (docs/v5-report.md) for the specific sites this
+    # `@EntityGraph` added this pass (docs/v5/v5-report.md) for the specific sites this
     # was masking. Only safe to flip *after* those fixes land: every finder method a
     # controller-layer response walks lazy associations on now carries its own
     # `@EntityGraph`, so nothing here still needs OSIV's safety net.
@@ -138,6 +141,9 @@ app:
   # How long a self-registration's email-verification link stays valid — see
   # UserService.createUser (generates it) / AuthService.verifyEmail (consumes it).
   email-verification-ttl-hours: ${APP_EMAIL_VERIFICATION_TTL_HOURS:24}
+  # How long an admin invite (InviteService.createInvite) stays live before
+  # InviteService.consumeInviteIfAny treats it as expired (falls back to Guest instead).
+  invite-ttl-days: ${APP_INVITE_TTL_DAYS:7}
   # Thresholds MaintenanceService's two @ScheduledMaintenance tasks check on each run —
   # independent of how often the tasks themselves run (see ScheduledMaintenance's own
   # interval/unit attributes at each call site).
@@ -165,11 +171,11 @@ springdoc:
     tags-sorter: alpha
     operations-sorter: method
 
-# Actuator — deliberately only health/info/metrics/prometheus, never the full "*". This
+# Actuator — deliberately only health/info/metrics, never the full "*". This
 # app handles patient PII and SecurityConfig currently permits every request unauthenticated
 # (see that class's own Javadoc) — actuator endpoints inherit that, so env/beans/configprops/
 # heapdump/threaddump (anything that could leak a secret, a bean graph, or a full heap) stay
-# off; the four exposed here are read-only operational signal with nothing sensitive in them.
+# off; the three exposed here are read-only operational signal with nothing sensitive in them.
 # Revisit this list together with SecurityConfig's permitAll() the day either one is locked
 # down — they're the same underlying gap, not two separate decisions.
 management:
@@ -182,7 +188,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,prometheus
+        include: health,info,metrics
   endpoint:
     health:
       # Which dependency (DB/Redis, both auto-detected — see HealthIndicator autoconfig,
@@ -192,14 +198,6 @@ management:
   metrics:
     tags:
       application: ${spring.application.name}
-    distribution:
-      percentiles-histogram:
-        # Buckets for the built-in per-endpoint HTTP timer AND this project's own
-        # @Timed("hms.rest.requests")/@Timed("hms.graphql.requests") (see MetricsConfig) —
-        # without this a Prometheus histogram_quantile() query has nothing to bucket into.
-        http.server.requests: true
-        hms.rest.requests: true
-        hms.graphql.requests: true
 
 # Actuator's /actuator/info — build.* comes from spring-boot-maven-plugin's build-info
 # goal (target/classes/META-INF/build-info.properties), picked up automatically; app.*
