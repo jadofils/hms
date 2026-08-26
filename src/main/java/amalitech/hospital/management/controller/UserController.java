@@ -3,6 +3,7 @@ package amalitech.hospital.management.controller;
 import amalitech.hospital.management.annotation.RequirePermission;
 import amalitech.hospital.management.dto.common.ApiResult;
 import amalitech.hospital.management.dto.user.AdminCreateUserRequest;
+import amalitech.hospital.management.dto.user.AssignRolesRequest;
 import amalitech.hospital.management.dto.user.PatchUserRequest;
 import amalitech.hospital.management.dto.user.UserRequest;
 import amalitech.hospital.management.dto.user.UserResponse;
@@ -130,16 +131,20 @@ public class UserController {
         return ResponseEntity.ok(ApiResult.of("Roles retrieved", userService.getUserRoles(userId)));
     }
 
-    @PostMapping("/{userId}/roles/{roleId}")
-    @Operation(summary = "Assign a role to a user")
-    @ApiResponse(responseCode = "204", description = "Role assigned")
-    @ApiResponse(responseCode = "404", description = "User or role not found")
-    @ApiResponse(responseCode = "409", description = "User already holds this role")
+    @PostMapping("/{userId}/roles")
+    @Operation(summary = "Assign one or more roles to a user at once",
+            description = "A user can hold many roles simultaneously — pass a single id or several; every "
+                    + "id in the list is granted in one call instead of one request per role. All-or-"
+                    + "nothing: if any single id doesn't exist or is already actively held, the whole call "
+                    + "fails and nothing in the list is assigned.")
+    @ApiResponse(responseCode = "204", description = "Roles assigned")
+    @ApiResponse(responseCode = "404", description = "User or one of the roles not found")
+    @ApiResponse(responseCode = "409", description = "User already holds one of the given roles")
     @RequirePermission(resource = Resource.USERS, action = PermissionAction.UPDATE)
-    public ResponseEntity<Void> assignRole(
+    public ResponseEntity<Void> assignRoles(
             @Parameter(description = "User UUID") @PathVariable String userId,
-            @Parameter(description = "Role UUID") @PathVariable String roleId) {
-        userService.assignRole(userId, roleId);
+            @Valid @RequestBody AssignRolesRequest request) {
+        userService.assignRoles(userId, request.getRoleIds());
         return ResponseEntity.noContent().build();
     }
 
