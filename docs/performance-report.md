@@ -65,17 +65,16 @@ recorded sample with `class`/`method` automatically, so `hms.rest.requests` and
 `hms.graphql.requests` become two directly comparable metric families, each already
 broken down by exactly which operation. That's the live, continuously-collected version
 of the one-off benchmark below — `/actuator/metrics/hms.rest.requests` and
-`/actuator/metrics/hms.graphql.requests` (or the same data via `/actuator/prometheus` for
-a Grafana dashboard) answer the same "REST vs GraphQL, which is faster for this
-operation?" question this benchmark answers manually, except continuously, under real
-traffic, instead of 30 synthetic iterations on a dev machine.
+`/actuator/metrics/hms.graphql.requests` answer the same "REST vs GraphQL, which is
+faster for this operation?" question this benchmark answers manually, except
+continuously, under real traffic, instead of 30 synthetic iterations on a dev machine.
 
 **What's actually exposed via Actuator, and what deliberately isn't.** Only
-`health,info,metrics,prometheus` — never the bare `*` some tutorials reach for. This app
+`health,info,metrics` — never the bare `*` some tutorials reach for. This app
 handles patient PII and `SecurityConfig` currently permits every request unauthenticated
 (see that class's own Javadoc) — actuator endpoints inherit that exact same gap, so
 `env`/`beans`/`configprops`/`heapdump`/`threaddump` (anything that could leak a secret, a
-full dependency graph, or a heap dump) stay off. The four exposed are read-only
+full dependency graph, or a heap dump) stay off. The three exposed are read-only
 operational signal with nothing sensitive in them:
 - `/actuator/health` — aggregate `UP`/`DOWN` plus, in dev (`show-details: always`) or for
   an authorized caller elsewhere (`show-details: when-authorized`), a breakdown per
@@ -86,9 +85,6 @@ operational signal with nothing sensitive in them:
 - `/actuator/info` — `build.*` from `spring-boot-maven-plugin`'s `build-info` goal
   (`pom.xml`), `app.*` from this project's own `info.app.*` in `application.yaml`.
 - `/actuator/metrics` — every named metric, including the two `@Timed` families above.
-- `/actuator/prometheus` — the same data in Prometheus text-exposition format
-  (`micrometer-registry-prometheus`), for scraping into an actual Grafana dashboard rather
-  than polling `/actuator/metrics/{name}` by hand.
 
 ## What `@Timed` maps onto this report, and what it doesn't
 
