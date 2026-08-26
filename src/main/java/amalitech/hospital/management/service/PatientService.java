@@ -187,7 +187,7 @@ public class PatientService {
      * <p>HMS v5 — the 9 independent lookups below (the core patient row plus 8
      * associated collections) used to run sequentially; each is now dispatched in
      * parallel via {@link #patientProfileExecutor}, joined once all 9 complete. Real
-     * before/after latency: see {@code docs/patient-profile-performance-report.md}
+     * before/after latency: see {@code docs/v5/patient-profile-performance-report.md}
      * ({@code PatientProfileBenchmarkTest}). Was never {@code @Transactional} itself
      * (each repository call always ran as its own short-lived Spring-Data-managed
      * transaction, sequentially) — parallelizing changes no existing transactional
