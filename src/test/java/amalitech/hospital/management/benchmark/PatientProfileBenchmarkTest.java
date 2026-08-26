@@ -39,13 +39,13 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p>{@code @Disabled} by default, same reasoning as this package's other benchmarks:
  * creates real rows in the shared dev/test database and isn't a correctness gate.
- * Re-run explicitly to regenerate {@code docs/patient-profile-performance-report.md}:
+ * Re-run explicitly to regenerate {@code docs/v5/patient-profile-performance-report.md}:
  * <pre>{@code ./mvnw test -Dtest=PatientProfileBenchmarkTest}</pre>
  * (after commenting out the {@code @Disabled} line below).
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
-@Disabled("Manual benchmark for docs/patient-profile-performance-report.md — see class Javadoc")
+@Disabled("Manual benchmark for docs/v5/patient-profile-performance-report.md — see class Javadoc")
 class PatientProfileBenchmarkTest {
 
     private static final int APPOINTMENT_ROWS = 5;
@@ -124,7 +124,7 @@ class PatientProfileBenchmarkTest {
 
         String report = renderReport(sequentialMs, avgParallelMs);
         System.out.println(report);
-        Path reportPath = Path.of("docs", "patient-profile-performance-report.md");
+        Path reportPath = Path.of("docs", "v5", "patient-profile-performance-report.md");
         Files.writeString(reportPath, report, StandardCharsets.UTF_8);
         assertThat(reportPath).exists();
     }
