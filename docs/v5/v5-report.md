@@ -4,7 +4,7 @@ This maps every Epic/User Story in [`ReadMe-v5.md`](ReadMe-v5.md) to what's actu
 implemented in this codebase, where, and — for each acceptance criterion — what was
 verified live or measured for real (report files/curl output pasted below, not
 "should work" hand-waving), the same evidence-first convention
-[`v2-report.md`](v2-report.md)/[`v4-report.md`](v4-report.md) followed.
+[`v2-report.md`](../v2/v2-report.md)/[`v4-report.md`](../v4/v4-report.md) followed.
 
 All five of the techniques the user explicitly named for this pass — Spring
 `ApplicationEvent`/listener/publish, `@Async`/`CompletableFuture`, connection pooling,
@@ -23,20 +23,30 @@ below.
 
 | Acceptance criterion | Status | Evidence |
 |---|---|---|
-| Profiling performed using a suitable tool (VisualVM/JProfiler/JFR) | ⚠️ Not done this way | See below |
+| Profiling performed using a suitable tool (VisualVM/JProfiler/JFR) | ✅ | [`jprofiler-report.md`](jprofiler-report.md) |
 | Bottlenecks identified in database access, service logic, API response time | ✅ | See below |
 | Baseline performance metrics recorded | ✅ | See Epic 1.2 |
 
-**Honest gap: no VisualVM/JProfiler/JFR session was run.** Instead, bottlenecks were
-found by direct code inspection (every repository call a service makes, cross-checked
-against each entity's `@ManyToOne`/`@ManyToMany` fetch types) plus targeted measurement
-tools purpose-built for what was actually being investigated — Hibernate's own
-`Statistics.getQueryExecutionCount()` for query-count bottlenecks, real
-`System.nanoTime()` HTTP timings for latency, matching this project's own
-`RestVsGraphQlBenchmarkTest`/`CachePerformanceBenchmarkTest` precedent from earlier
-passes. This is a different, more targeted methodology than a general-purpose sampling
-profiler, not a substitute pretending to be one — flagged honestly rather than claiming
-a profiling tool was used when it wasn't.
+**A real JProfiler 16 session was run against the actual running app** — attached to
+the live `HmsApplication` JVM via JProfiler's CLI tools (`jpcontroller`/`jpexport`, no
+GUI needed), CPU (sampling) + JDBC/JPA/HTTP-server probes recorded while 654 real
+concurrent authenticated requests were driven against six endpoints. Full methodology,
+tables, and findings: [`jprofiler-report.md`](jprofiler-report.md). Four concrete
+findings came out of it: `LoggingAspect`'s blanket debug/info logging is the single
+largest CPU cost bucket observed (ahead of any business method); the per-request,
+uncached `RolePermissionRepository.hasGrantedPermission` authorization check is the
+single most expensive repeated query (paid by every protected endpoint); listing
+pagination's mandatory `COUNT`+`SELECT` pair is a real, structural ~9–12ms/call cost;
+and `@Cacheable("doctors")`/`PatientService.getPatient`'s fan-out both measured at a
+real 98.7% cache-hit rate under concurrent load (counted from actual SQL executions,
+not assumed).
+
+An earlier pass of this report noted no profiler had been run and relied instead on
+direct code inspection plus targeted measurement tools (Hibernate's
+`Statistics.getQueryExecutionCount()`, real `System.nanoTime()` HTTP timings) — that
+methodology is still exactly how the two N+1/bottleneck findings below were originally
+found, and remains valid; the JProfiler session above is additive real-profiler
+evidence on top of it, not a replacement.
 
 **Bottlenecks found, both real, both fixed this pass:**
 1. **6 N+1 query sites** — `InvoiceService.getInvoices`, `PrescriptionService.getPrescriptions`,
@@ -54,16 +64,22 @@ a profiling tool was used when it wasn't.
 
 | Acceptance criterion | Status | Evidence |
 |---|---|---|
-| Metrics include CPU usage, memory footprint, response latency | ⚠️ Latency only | See below |
-| Findings documented with screenshots or summary data | ✅ (summary data, no screenshots) | 3 new report files |
-| Report stored as part of deliverables | ✅ | `docs/entity-graph-performance-report.md`, `docs/patient-profile-performance-report.md`, this report |
+| Metrics include CPU usage, memory footprint, response latency | ⚠️ CPU + latency, not memory | See below |
+| Findings documented with screenshots or summary data | ✅ (summary data, no screenshots) | 4 report files |
+| Report stored as part of deliverables | ✅ | `docs/v5/jprofiler-report.md`, `docs/v5/entity-graph-performance-report.md`, `docs/v5/patient-profile-performance-report.md`, this report |
 
-**Honest gap: CPU usage and memory footprint were not measured** — no profiler ran, so
-there's nothing to report for those two; only response latency and SQL statement counts
-were measured, both for real (see Epic 5 below for the exact numbers). No screenshots
-either — this project's existing report convention (`docs/v2-report.md`'s `EXPLAIN
-ANALYZE` output, `docs/cache-performance-report.md`) is real pasted text/tables over
-screenshots, continued here.
+**CPU usage is now measured for real** — [`jprofiler-report.md`](jprofiler-report.md)'s
+CPU hot-spot table (self time/average/invocation counts for the top 10 of 100 profiled
+methods). **Memory usage is now measured too, via a second, longer live JProfiler GUI
+session** (screenshots in `jprofiler-screenshots/`, described and embedded in that
+report) — real heap-usage trend, sampled object-creation counts/throughput, GC activity
+(effectively 0%), thread-state breakdown, and process-vs-system CPU load. **Narrower
+remaining gap**: instrumented allocation *hot-spot-by-method* tracking specifically
+(`startAllocationRecording`) was rejected by the CLI-attached agent ("operation ... is
+not supported by the profiling agent"), so there's no "which class/method allocates
+the most" table — only the sampled volume/trend telemetry above. Response latency and
+SQL statement counts were both measured for real (see Epic 5 below for the exact
+numbers, and `jprofiler-report.md` for the per-endpoint latency table).
 
 ---
 
@@ -81,7 +97,7 @@ screenshots, continued here.
 associated collections) — previously sequential, now dispatched via
 `CompletableFuture.supplyAsync` against a dedicated `patientProfileExecutor`
 (`AsyncConfig`, core 4/max 8/queue 100). Real measured speedup:
-[`docs/patient-profile-performance-report.md`](patient-profile-performance-report.md) —
+[`docs/v5/patient-profile-performance-report.md`](patient-profile-performance-report.md) —
 **1.47x**, measured by calling the same 9 methods sequentially through the real
 Spring-managed bean ("before") versus the real `GET /api/v1/patients/{id}` endpoint
 ("after"), not a projected number.
@@ -112,8 +128,8 @@ sites, held the DB transaction/connection open) for the full duration.
 
 | Acceptance criterion | Status | Evidence |
 |---|---|---|
-| Multiple API calls executed in parallel | ✅ | See below |
-| No data inconsistency or race conditions observed | ✅ | See below |
+| Multiple API calls executed in parallel | ✅ | See below, and [`load-testing-report.md`](load-testing-report.md) |
+| No data inconsistency or race conditions observed | ✅ | See below — now also 10,019 real concurrent HTTP requests, 0 failures |
 | Response times compared before and after optimization | ✅ | Both report files above |
 
 Two new tests in `PatientServiceTest`, the first `ExecutorService`+`CountDownLatch`
@@ -126,6 +142,12 @@ pass consistently. `MailEventListenerTransactionalTimingTest` similarly proves (
 `@SpringBootTest` + `CountDownLatch`, not a mock) that the mail listener never fires
 before commit, never fires after rollback, and always runs on a different thread than
 the caller.
+
+**Real HTTP-level concurrency, beyond the unit tests above**: [`load-testing-report.md`](load-testing-report.md)
+— JMeter and k6, 50 concurrent users each, ~60s sustained, same six real endpoints.
+10,019 total requests across both tools, 0 failures. Confirms "no data inconsistency
+or race conditions" at the actual HTTP/concurrent-request level, not just the two
+targeted unit tests above.
 
 ---
 
@@ -156,17 +178,22 @@ map is the pass's own genuine addition.
 
 | Acceptance criterion | Status | Evidence |
 |---|---|---|
-| Executor configurations tested with varying thread pool sizes | ⚠️ Sized and justified, not load-tested | See below |
-| CPU and memory utilization monitored during stress testing | ❌ Not done | No profiler/load test ran this pass |
+| Executor configurations tested with varying thread pool sizes | ⚠️ Load-tested at the current sizes, not swept across values | [`load-testing-report.md`](load-testing-report.md) |
+| CPU and memory utilization monitored during stress testing | ✅ | [`jprofiler-report.md`](jprofiler-report.md) (CPU/heap/GC/threads) + [`load-testing-report.md`](load-testing-report.md) (throughput/latency/errors under 50 concurrent users) |
 | Optimal configuration documented and justified | ✅ | `AsyncConfig`'s own Javadoc |
 
-**Honest gap**: `mailTaskExecutor` (core 2/max 6/queue 50) and `patientProfileExecutor`
-(core 4/max 8/queue 100) were sized by reasoning about each workload's shape (I/O-bound
+**`mailTaskExecutor` (core 2/max 6/queue 50) and `patientProfileExecutor` (core 4/max
+8/queue 100)** were sized by reasoning about each workload's shape (I/O-bound
 one-at-a-time sends vs. a per-request 9-way fan-out) and documented as such in
-`AsyncConfig`'s Javadoc, but neither was swept across multiple pool-size values under an
-actual load-testing tool (JMeter, per the README's own Technical Requirements table) to
-empirically confirm the chosen sizes are optimal — that would be a real follow-up, not
-claimed as done here.
+`AsyncConfig`'s Javadoc. **Now also load-tested for real** at those exact sizes — 50
+concurrent users sustained for ~60s against real endpoints (including
+`/api/v1/patients/{id}`, which exercises `patientProfileExecutor` directly), 0 request
+failures, real CPU/heap/GC/thread telemetry captured live via JProfiler during a
+comparable session. **Narrower remaining gap**: neither executor's pool size was
+*swept* across multiple values (e.g. re-running the same load test at core/max 2/4/8
+and comparing) to empirically confirm the current sizes are optimal rather than merely
+adequate — `load-testing-report.md`'s own "Still open" section spells this out as the
+natural next step, using the same two scripts already committed for it.
 
 ---
 
@@ -201,7 +228,7 @@ count. Measured directly, not asserted: see Epic 5 below.
 | Metrics summarized in a performance report | ✅ | Both report files |
 | Charts or tables provided | ✅ (tables; no charts) | Both report files |
 
-No charts/graphs — matching this project's own `docs/cache-performance-report.md`
+No charts/graphs — matching this project's own `docs/v2/cache-performance-report.md`
 precedent (tables only), not a new gap this pass introduced.
 
 ---
@@ -212,7 +239,7 @@ precedent (tables only), not a new gap this pass introduced.
 
 | Acceptance criterion | Status | Evidence |
 |---|---|---|
-| Metrics collected for latency, memory usage, throughput | ⚠️ Latency + query count only | See below |
+| Metrics collected for latency, memory usage, throughput | ⚠️ Latency + CPU + query count, not memory | See below |
 | Data visualized or summarized | ✅ | Tables in both report files |
 | Profiling integrated into workflow | ⚠️ Partial | See below |
 
@@ -231,13 +258,16 @@ arithmetically certain from the exact lazy-chain Prescription→Appointment→Pa
 code (see `EntityGraphBenchmarkTest`'s own Javadoc for why). Every other number in this
 table was actually measured this pass, live, against a real Postgres/Redis/Gmail SMTP.
 
-**"Profiling integrated into workflow" — partial credit, inherited from HMS v4**: this
-project already has `@Timed("hms.rest.requests"/"hms.graphql.requests")` on every
-controller/resolver (Micrometer, `/actuator/metrics`, `/actuator/prometheus`) from the
-v4 pass — live, continuously-collected latency/throughput data, which is a form of
-ongoing production profiling integration, just not a v5-specific addition and not the
-CPU/memory-sampling kind of profiling (VisualVM/JFR) this Epic's User Story 1.1 also asks
-for and this pass didn't run.
+**"Profiling integrated into workflow" — partial credit.** Two distinct things exist:
+(1) this project already has `@Timed("hms.rest.requests"/"hms.graphql.requests")` on
+every controller/resolver (Micrometer, `/actuator/metrics`)
+from the v4 pass — live, continuously-collected latency/throughput data, a form of
+ongoing production profiling integration, just not a v5-specific addition; (2) a real
+CPU/memory-sampling profiling *session* (JProfiler — see Epic 1 above,
+[`jprofiler-report.md`](jprofiler-report.md)) was run against the live app, satisfying
+User Story 1.1's own ask directly. Still "partial" rather than full credit for *this*
+criterion specifically, because that was one manual session, not something wired into
+the ongoing dev/CI workflow the way `@Timed`/actuator already is.
 
 **User Story 5.2** — *view evidence of optimization.*
 
