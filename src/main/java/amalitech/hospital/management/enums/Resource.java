@@ -29,7 +29,8 @@ public enum Resource {
     INVOICES("invoices", "Invoices"),
     NOTIFICATIONS("notifications", "Notifications"),
     EVENTS("events", "Events"),
-    SYSTEM_LOGS("system-logs", "System Logs");
+    SYSTEM_LOGS("system-logs", "System Logs"),
+    INVITES("invites", "Invites");
 
     private final String dbValue;
     private final String label;
