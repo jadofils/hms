@@ -6,7 +6,12 @@ public enum RoleName {
     DOCTOR("Doctor"),
     RECEPTIONIST("Receptionist"),
     ANALYST("Analyst"),
-    PHARMACIST("Pharmacist");
+    PHARMACIST("Pharmacist"),
+    /** Auto-granted default for a brand-new self-registered/Google-OAuth2 account not
+     *  pre-authorized by an admin invite — see {@code UserService.assignDefaultGuestRole}.
+     *  Read-only access to the doctor directory/availability only (see DataSeeder's own
+     *  grant list) — never a role an admin assigns by hand. */
+    GUEST("Guest");
 
     private final String dbValue;
 
