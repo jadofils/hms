@@ -16,8 +16,7 @@ import org.springframework.context.annotation.Configuration;
  * {@code @Timed("hms.rest.requests")}/{@code @Timed("hms.graphql.requests")} on every
  * REST controller/GraphQL resolver give the one-off {@code RestVsGraphQlBenchmarkTest}
  * comparison a live, continuously-collected counterpart, queryable at
- * {@code /actuator/metrics/hms.rest.requests}/{@code hms.graphql.requests} or scraped via
- * {@code /actuator/prometheus}.
+ * {@code /actuator/metrics/hms.rest.requests}/{@code hms.graphql.requests}.
  */
 @Configuration
 public class MetricsConfig {
