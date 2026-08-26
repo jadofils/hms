@@ -98,7 +98,12 @@ public class DataSeeder implements CommandLineRunner {
                     "medical-inventory:create", MEDICAL_INVENTORY_READ,
                     "medical-inventory:update", "medical-inventory:delete",
                     PRESCRIPTIONS_READ, PRESCRIPTION_ITEMS_READ,
-                    NOTIFICATIONS_READ, NOTIFICATIONS_UPDATE)
+                    NOTIFICATIONS_READ, NOTIFICATIONS_UPDATE),
+            // Auto-assigned to every brand-new self-service account (see
+            // UserService.assignDefaultGuestRole) — deliberately just enough to browse
+            // the public-safe doctor directory/availability, nothing about any other
+            // person's medical/financial records.
+            RoleName.GUEST, List.of(DOCTORS_READ, DEPARTMENTS_READ, DOCTOR_SCHEDULES_READ)
     );
 
     /** One sample login per role. Seed credentials for dev/demo use, not production
