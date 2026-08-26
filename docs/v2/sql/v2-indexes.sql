@@ -1,4 +1,4 @@
--- Indexes added for HMS v2 (see docs/v2-report.md, Epic 3.2 — "Optimize searching,
+-- Indexes added for HMS v2 (see docs/v2/v2-report.md, Epic 3.2 — "Optimize searching,
 -- filtering, and retrieval logic").
 --
 -- These are declared on the entities themselves via @Table(indexes = {...}) — see
