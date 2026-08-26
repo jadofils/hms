@@ -65,7 +65,7 @@ class DoctorControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    void assignAndRemoveDepartment_throughRealHttpEndpoints() throws Exception {
+    void assignDepartmentsAndRemoveDepartment_throughRealHttpEndpoints() throws Exception {
         String token = adminToken();
         String phone = uniqueDigits(9);
         String email = "doctor" + uniqueDigits(6) + "@example.com";
@@ -85,8 +85,10 @@ class DoctorControllerTest extends AbstractControllerTest {
 
         String secondDepartmentId = createDepartment(token);
 
-        mockMvc.perform(post("/api/v1/doctors/" + doctorId + "/departments/" + secondDepartmentId)
-                        .header("Authorization", "Bearer " + token))
+        mockMvc.perform(post("/api/v1/doctors/" + doctorId + "/departments")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"departmentIds\":[\"" + secondDepartmentId + "\"]}"))
                 .andExpect(status().isNoContent());
 
         MvcResult afterAssign = mockMvc.perform(get("/api/v1/doctors/" + doctorId)
