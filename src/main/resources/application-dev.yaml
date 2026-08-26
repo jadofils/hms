@@ -10,6 +10,16 @@ spring:
 logging:
   level:
     amalitech.hospital.management: DEBUG
+    # Hibernate's own "HHH10001005: Database info" block (INFO, always on) can't show
+    # real pool numbers — it's logged by DataSourceConnectionProvider, which never
+    # introspects the actual HikariDataSource Spring hands it, so its
+    # "Minimum/Maximum pool size" fields are hardcoded "undefined/unknown" no matter
+    # what maximum-pool-size/minimum-idle are set to. This instead turns on HikariCP's
+    # own startup config dump (HikariConfig's logConfiguration(), DEBUG-gated), which
+    # prints every real Hikari setting once per pool start, including
+    # maximumPoolSize/minimumIdle/poolName actually in effect — the same numbers
+    # confirmed via /actuator/metrics/hikaricp.connections.max|min.
+    com.zaxxer.hikari.HikariConfig: DEBUG
 
 management:
   endpoint:
