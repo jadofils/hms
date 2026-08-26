@@ -43,8 +43,10 @@ public class AuthController {
 
     @PostMapping("/register")
     @Operation(summary = "Self-service account registration",
-            description = "Creates the account only — it has no role yet, so it can't log in until an "
-                    + "administrator assigns one via POST /api/v1/users/{userId}/roles/{roleId}.")
+            description = "The account is granted a role immediately (HMS v5): a live admin invite "
+                    + "(POST /api/v1/invites) for this exact email wins outright, otherwise it gets "
+                    + "the generic read-only Guest role automatically. Either way, the email-"
+                    + "verification link still has to be clicked before the account can log in.")
     @ApiResponse(responseCode = "201", description = "Account created")
     @ApiResponse(responseCode = "409", description = "Username or email already taken")
     public ResponseEntity<ApiResult<UserResponse>> register(@Valid @RequestBody UserRequest request) {
@@ -55,7 +57,8 @@ public class AuthController {
     @GetMapping("/verify-email")
     @Operation(summary = "Confirm a self-registered account's email address",
             description = "Consumes the single-use link sent by POST /register. Does not itself log the "
-                    + "caller in — a role must still be assigned by an administrator before that's possible.")
+                    + "caller in — a subsequent POST /login still needs the actual credentials — but the "
+                    + "account already has a role (Guest or an invited one, see POST /register) by this point.")
     @ApiResponse(responseCode = "200", description = "Email verified")
     @ApiResponse(responseCode = "400", description = "Invalid or expired verification token")
     public ResponseEntity<ApiResult<Void>> verifyEmail(@RequestParam String token) {
