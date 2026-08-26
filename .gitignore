@@ -2,6 +2,11 @@ HELP.md
 target/
 .mvn/wrapper/maven-wrapper.jar
 
+# Prometheus's own local TSDB storage — prometheus.cmd runs prometheus.exe with the
+# process's cwd as the repo root and no --storage.tsdb.path override, so it writes its
+# database here by default. Runtime data, not source — never commit it.
+/data/
+
 # Project instructions for Claude Code — kept local, not published to the repo
 CLAUDE.md
 
