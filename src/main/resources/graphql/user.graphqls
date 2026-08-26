@@ -1,5 +1,5 @@
 # User/Role/Permission cluster — Role<->Permission via RolePermission, User<->Role via
-# UserRole. Both join tables surface as mutations (assignRole/revokeRole/grantPermission/
+# UserRole. Both join tables surface as mutations (assignRoles/revokeRole/grantPermission/
 # revokePermission), not their own types — matching REST, which has no
 # UserRoleController/RolePermissionController either. Permission itself is read-only —
 # a fixed, system-managed catalog (see PermissionService's Javadoc) — createRole's own
@@ -91,7 +91,9 @@ extend type Mutation {
     updateUser(userId: ID!, input: UserInput!): User!
     patchUser(userId: ID!, input: PatchUserInput!): User!
     deleteUser(userId: ID!): Boolean!
-    assignRole(userId: ID!, roleId: ID!): User!
+    """Grants every id in roleIds to the user in one call — pass a single-element list
+    to assign just one role. All-or-nothing (see UserService.assignRoles)."""
+    assignRoles(userId: ID!, roleIds: [ID!]!): User!
     revokeRole(userId: ID!, roleId: ID!): User!
 
     createRole(input: RoleInput!): Role!
