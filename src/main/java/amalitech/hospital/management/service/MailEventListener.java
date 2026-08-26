@@ -3,8 +3,11 @@ package amalitech.hospital.management.service;
 import amalitech.hospital.management.event.AdminCreatedUserEvent;
 import amalitech.hospital.management.event.PasswordChangedEvent;
 import amalitech.hospital.management.event.PasswordResetRequestedEvent;
+import amalitech.hospital.management.event.UserInvitedEvent;
 import amalitech.hospital.management.event.UserRegisteredEvent;
+import amalitech.hospital.management.event.UserRoleMissingEvent;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.event.TransactionPhase;
@@ -42,6 +45,12 @@ public class MailEventListener {
 
     private final MailService mailService;
 
+    // Only used to build onUserRoleMissing's CTA link — same deep-link-into-the-
+    // frontend convention every other template here already relies on
+    // (reset-password, oauth2/callback, ...), even without a real frontend in this repo.
+    @Value("${app.frontend-base-url}")
+    private final String frontendBaseUrl;
+
     @Async("mailTaskExecutor")
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void onUserRegistered(UserRegisteredEvent event) {
@@ -67,5 +76,36 @@ public class MailEventListener {
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void onPasswordChanged(PasswordChangedEvent event) {
         mailService.sendPasswordChangedEmail(event.getEmail(), event.getRecipientName(), event.getChangedAt());
+    }
+
+    /** HMS v5 — {@code InviteService.createInvite}. Reuses the "generic" template
+     *  rather than a dedicated one, same as {@link #onUserRoleMissing} below — neither
+     *  is frequent enough on its own to warrant its own HTML file. */
+    @Async("mailTaskExecutor")
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
+    public void onUserInvited(UserInvitedEvent event) {
+        String heading = "You've been invited to Hospital Management System";
+        String body = "<p>" + event.getInvitedByUsername() + " has invited you to join as <strong>"
+                + event.getRoleName() + "</strong>.</p>"
+                + "<p>Register with this exact email address within " + event.getExpiryDays()
+                + " day(s) and that role will be assigned automatically.</p>";
+        mailService.sendNotificationEmail(event.getEmail(), event.getEmail(),
+                "You've been invited to HMS", heading, body, "Register now", event.getRegisterUrl());
+    }
+
+    /** HMS v5 — {@code AuthService.completeLogin}'s {@code notifyAdminsOfMissingRole},
+     *  one event per currently-active admin. See {@link UserRoleMissingEvent}'s own
+     *  Javadoc for why reaching this is a genuine edge case now, not the routine
+     *  "just signed up" outcome it used to be. */
+    @Async("mailTaskExecutor")
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
+    public void onUserRoleMissing(UserRoleMissingEvent event) {
+        String heading = "An account has no assigned role";
+        String body = "<p>" + event.getPendingUsername() + " (" + event.getPendingUserEmail()
+                + ", id: " + event.getPendingUserId() + ") just attempted to log in but holds no active role "
+                + "and can't be authenticated until one is assigned.</p>";
+        String ctaUrl = frontendBaseUrl + "/admin/users/" + event.getPendingUserId();
+        mailService.sendNotificationEmail(event.getAdminEmail(), event.getAdminUsername(),
+                "HMS: an account needs a role", heading, body, "Review this account", ctaUrl);
     }
 }
