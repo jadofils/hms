@@ -3,7 +3,7 @@
 This maps every Epic/User Story in [`Readme-v2.md`](Readme-v2.md) to what's actually
 implemented in this codebase, where, and — for each acceptance criterion that wasn't
 already covered by the v1 build — what was added this pass to close it. Written the same
-way [`README.md`](README.md)'s own v1 evaluation was: evidence-first, real file/line
+way [`README.md`](../README.md)'s own v1 evaluation was: evidence-first, real file/line
 references, no "should already work" hand-waving.
 
 Most of v2's ask was already satisfied by v1's own build (Spring Data JPA, `Pageable`
@@ -128,8 +128,8 @@ real dev database, returning real patients by computed age. `minAge` wins over
 **User Story 2.2** — *As a receptionist, I want to browse data using pagination and
 sorting.* Already fully covered by v1's build — every listing endpoint takes a `Pageable`
 and returns a `PagedModel`, sortable by any whitelisted column (REST `?sort=`, GraphQL
-`sort` argument). See [`story-2.2-receptionist-filtering.md`](story-2.2-receptionist-filtering.md)
-and [`performance-report.md`](performance-report.md)'s "Pagination, Sorting & Filtering"
+`sort` argument). See [`story-2.2-receptionist-filtering.md`](../story-2.2-receptionist-filtering.md)
+and [`performance-report.md`](../performance-report.md)'s "Pagination, Sorting & Filtering"
 section — including the explicit offset-vs-cursor-pagination comparison this v2 README's
 own Technical Requirements table doesn't ask for directly but the original v1 README did.
 
@@ -201,7 +201,7 @@ automatically in `dev` (`ddl-auto: update`; confirmed live via `psql`'s `pg_inde
 a restart). `test`/`prod` use `ddl-auto: validate` (the existing schema is assumed
 correct — Hibernate never creates or checks for indexes in that mode), and this project
 has no Flyway/Liquibase migration tool to apply schema changes automatically outside
-`dev`. [`docs/sql/v2-indexes.sql`](sql/v2-indexes.sql) is the same six `CREATE INDEX IF
+`dev`. [`docs/v2/sql/v2-indexes.sql`](sql/v2-indexes.sql) is the same six `CREATE INDEX IF
 NOT EXISTS` statements, meant to be run by hand against any database that wasn't
 bootstrapped with `ddl-auto=update` after this change existed.
 
@@ -227,7 +227,7 @@ count, not today. This is presented as real, current evidence of the right query
 existing, not an inflated performance claim.
 
 **Query performance measured** — see the pre-existing
-[`performance-report.md`](performance-report.md) (REST vs GraphQL, 8 operations, real
+[`performance-report.md`](../performance-report.md) (REST vs GraphQL, 8 operations, real
 `System.nanoTime()` timings) and the new
 [`cache-performance-report.md`](cache-performance-report.md) below.
 
@@ -259,7 +259,7 @@ Redis — same rigor as `RestVsGraphQlBenchmarkTest`), shows a real run:
 See that report's own "Analysis" section for the honest caveats (single-key measurement,
 not a load test; why this project caches only single-item lookups, never a paginated
 listing — the same "whole-table cache doesn't fit a write-heavy, filterable/sortable
-access pattern" reasoning `performance-report.md`'s own "What `@Timed` maps onto this
+access pattern" reasoning `docs/performance-report.md`'s own "What `@Timed` maps onto this
 report" section gives).
 
 ---
@@ -286,7 +286,7 @@ optimizations.*
 | `model/notification/Notification.java` | `@Index` on `read_at` |
 | `model/finance/Invoice.java` | `@Index` on `payment_status` |
 | `model/user/logs/SystemLog.java` | `@Index` on `created_at`, `log_level` |
-| `docs/sql/v2-indexes.sql` | Manual DDL for non-`dev` databases (no migration tool exists) |
+| `docs/v2/sql/v2-indexes.sql` | Manual DDL for non-`dev` databases (no migration tool exists) |
 | `test/.../service/TransactionRollbackTest.java` | Real-DB rollback verification |
 | `test/.../benchmark/CachePerformanceBenchmarkTest.java` | Generates `cache-performance-report.md` |
 | `repository/pharmacy/MedicalInventoryRepository.java` | Derived query + custom JPQL `findLowStock` |
