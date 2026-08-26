@@ -267,6 +267,23 @@ public class DoctorService {
     }
 
     /**
+     * Bulk counterpart to {@link #assignDepartment} — a doctor can belong to many
+     * departments at once (and a department can hold many doctors), so this grants
+     * every id in {@code departmentIds} in one call. Routed through {@link #self} on
+     * each iteration, not {@code this.assignDepartment(...)} — same reasoning
+     * {@link #createDoctor}'s own loop already documents: a same-class call bypasses
+     * {@code @CacheEvict} too, not just this class's custom AOP annotations. All-or-
+     * nothing: the first id that doesn't exist or is already assigned throws, rolling
+     * back every grant this call already made.
+     */
+    @Transactional
+    public void assignDepartments(String doctorId, List<String> departmentIds) {
+        for (String departmentId : departmentIds) {
+            self.assignDepartment(doctorId, departmentId);
+        }
+    }
+
+    /**
      * Refuses to remove a doctor's last remaining department (see this class's
      * Javadoc) — assign a replacement department first if the doctor is moving
      * elsewhere entirely.
