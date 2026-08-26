@@ -62,8 +62,8 @@ public class DoctorResolver {
     }
 
     @MutationMapping
-    public DoctorResponse assignDepartment(@Argument String doctorId, @Argument String departmentId) {
-        doctorService.assignDepartment(doctorId, departmentId);
+    public DoctorResponse assignDepartments(@Argument String doctorId, @Argument List<String> departmentIds) {
+        doctorService.assignDepartments(doctorId, departmentIds);
         return doctorService.getDoctor(doctorId);
     }
 
