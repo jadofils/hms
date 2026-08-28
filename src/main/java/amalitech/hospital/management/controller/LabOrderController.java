@@ -18,6 +18,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.data.web.PagedModel;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -53,7 +55,7 @@ public class LabOrderController {
             array = @ArraySchema(schema = @Schema(type = "string")), example = "orderedAt,desc")
     @RequirePermission(resource = Resource.LAB_ORDERS, action = PermissionAction.READ)
     public ResponseEntity<ApiResult<PagedModel<LabOrderResponse>>> getLabOrders(
-            Pageable pageable,
+            @PageableDefault(size = 20, sort = "orderedAt", direction = Sort.Direction.DESC) Pageable pageable,
             @Parameter(description = "Filter by status: ordered, in_progress, completed, cancelled",
                     example = "ordered")
             @RequestParam(required = false) String status) {
