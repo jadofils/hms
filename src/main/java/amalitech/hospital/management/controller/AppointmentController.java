@@ -18,6 +18,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.data.web.PagedModel;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -55,7 +57,7 @@ public class AppointmentController {
             array = @ArraySchema(schema = @Schema(type = "string")), example = "appointmentDate,desc")
     @RequirePermission(resource = Resource.APPOINTMENTS, action = PermissionAction.READ)
     public ResponseEntity<ApiResult<PagedModel<AppointmentResponse>>> getAppointments(
-            Pageable pageable,
+            @PageableDefault(size = 20, sort = "appointmentId", direction = Sort.Direction.ASC) Pageable pageable,
             @Parameter(description = "Filter by status: scheduled, completed, cancelled", example = "scheduled")
             @RequestParam(required = false) String status) {
         return ResponseEntity.ok(ApiResult.of("Appointments retrieved", appointmentService.getAppointments(pageable, status)));
