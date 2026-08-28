@@ -57,6 +57,6 @@ public class PermissionExpressions {
         if (!(authentication != null && authentication.getPrincipal() instanceof AuthenticatedUser user)) {
             return false;
         }
-        return rolePermissionRepository.hasGrantedPermission(user.role(), resource, action);
+        return rolePermissionRepository.hasGrantedPermission(user.roles(), resource, action);
     }
 }
