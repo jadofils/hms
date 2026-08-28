@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>HMS CORS — Real Browser Client Test</title>
+<style>
+    body { font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; max-width: 44rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; color: #1f2933; }
+    h1 { font-size: 1.4rem; }
+    .note { background: #fffbe6; border: 1px solid #f0e2a4; border-radius: 0.4rem; padding: 0.8rem 1rem; font-size: 0.88rem; margin-bottom: 1.5rem; }
+    code { background: #f1f5f9; padding: 0.1rem 0.35rem; border-radius: 0.25rem; }
+    input { width: 100%; padding: 0.5rem 0.7rem; margin: 0.3rem 0 1rem; border: 1px solid #cbd5e1; border-radius: 0.35rem; font-size: 0.9rem; box-sizing: border-box; }
+    button { padding: 0.55rem 1.1rem; border: none; border-radius: 0.35rem; background: #1e293b; color: #fff; font-weight: 600; cursor: pointer; }
+    pre { background: #0f172a; color: #e2e8f0; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; font-size: 0.82rem; white-space: pre-wrap; word-break: break-word; }
+    .result { border-radius: 0.4rem; padding: 0.8rem 1rem; margin-top: 1rem; font-size: 0.9rem; }
+    .result.ok { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
+    .result.blocked { background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; }
+    .result.idle { background: #f1f5f9; color: #52606d; }
+</style>
+</head>
+<body>
+<h1>HMS CORS — real browser client test</h1>
+
+<div class="note">
+    <strong>This file must NOT be opened from <code>localhost:8080</code> or as a bare
+    <code>file://</code> URL</strong> — both defeat the point. Serve it from a different
+    port so the browser treats it as a genuinely different origin, e.g. from this folder:
+    <pre>python -m http.server 5500</pre>
+    then open <code>http://localhost:5500/cors-browser-test.html</code>. This is the same
+    demonstration described in HMS v4's User Story 1.2/3.2 (<code>docs/v4/README-V4.MD</code>)
+    — Postman itself doesn't enforce CORS (see the companion
+    <code>postman/HMS-CORS-CSRF-Demo.postman_collection.json</code> for what Postman
+    <em>can</em> verify instead: the server's own header decision). Only a real browser
+    page making a real cross-origin request proves the enforcement side.
+</div>
+
+<p>Backend URL to call (defaults to the app's own <code>/api/v1/roles</code>):</p>
+<input id="apiUrl" value="http://localhost:8080/api/v1/roles"/>
+<button onclick="runTest()">Fetch it from this page's origin</button>
+
+<div id="result" class="result idle">Not run yet.</div>
+
+<pre id="detail" style="display:none"></pre>
+
+<script>
+async function runTest() {
+    const url = document.getElementById('apiUrl').value;
+    const resultEl = document.getElementById('result');
+    const detailEl = document.getElementById('detail');
+    resultEl.className = 'result idle';
+    resultEl.textContent = 'Requesting from origin: ' + window.location.origin + ' ...';
+    detailEl.style.display = 'none';
+
+    try {
+        const response = await fetch(url, { mode: 'cors' });
+        const text = await response.text();
+        resultEl.className = 'result ok';
+        resultEl.textContent = 'Succeeded — HTTP ' + response.status + '. This page\'s origin '
+            + '(' + window.location.origin + ') is on app.cors-allowed-origins, so the browser '
+            + 'let this script read the response.';
+        detailEl.style.display = 'block';
+        detailEl.textContent = text.slice(0, 500);
+    } catch (err) {
+        // A CORS rejection surfaces here as a generic "Failed to fetch" TypeError —
+        // browsers deliberately never expose the real reason to page JS, only to the
+        // DevTools console (open it to see the actual "blocked by CORS policy" message).
+        resultEl.className = 'result blocked';
+        resultEl.textContent = 'Blocked — the browser refused to hand this script the response '
+            + '("' + err.message + '"). This origin (' + window.location.origin + ') is not on '
+            + 'app.cors-allowed-origins. Open DevTools\' console for the browser\'s own '
+            + '"blocked by CORS policy" message.';
+        detailEl.style.display = 'none';
+    }
+}
+</script>
+</body>
+</html>
