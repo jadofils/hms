@@ -11,11 +11,16 @@ import amalitech.hospital.management.exception.runtime.UnauthorizedException;
 import amalitech.hospital.management.service.InviteService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
+import io.swagger.v3.oas.annotations.media.ArraySchema;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.data.web.PagedModel;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -63,11 +68,19 @@ public class InviteController {
     }
 
     @GetMapping
-    @Operation(summary = "List pending invites (paginated)",
-            description = "Only invites neither accepted nor revoked yet.")
+    @Operation(summary = "List pending invites (paginated, sortable)",
+            description = "Only invites neither accepted nor revoked yet. Standard "
+                    + "`?sort=property,direction` query param — any `UserInvite` scalar field is "
+                    + "sortable: `inviteId`, `email`, `createdAt`, `expiresAt`, `acceptedAt`, "
+                    + "`revokedAt`. Defaults to newest-first.")
     @ApiResponse(responseCode = "200", description = "Pending invites returned")
+    @Parameter(name = "sort", in = ParameterIn.QUERY,
+            description = "Sort by property,direction. Possible properties: inviteId, email, "
+                    + "createdAt, expiresAt, acceptedAt, revokedAt.",
+            array = @ArraySchema(schema = @Schema(type = "string")), example = "createdAt,desc")
     @RequirePermission(resource = Resource.INVITES, action = PermissionAction.READ)
-    public ResponseEntity<ApiResult<PagedModel<InviteResponse>>> getPendingInvites(Pageable pageable) {
+    public ResponseEntity<ApiResult<PagedModel<InviteResponse>>> getPendingInvites(
+            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
         return ResponseEntity.ok(ApiResult.of("Pending invites retrieved", inviteService.getPendingInvites(pageable)));
     }
 
