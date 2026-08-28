@@ -11,6 +11,7 @@ import java.time.Duration;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.hamcrest.Matchers.contains;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -99,7 +100,7 @@ class AuthControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    void register_withEmail_blocksLoginUntilVerified_thenGetsGuestUntilAnAdminUpgradesIt() throws Exception {
+    void register_withEmail_blocksLoginUntilVerified_thenHoldsGuestPlusAnyRoleAnAdminAssigns() throws Exception {
         String username = "authver" + uniqueDigits(6);
         String email = "authver" + uniqueDigits(6) + "@example.com";
         String registerBody = "{\"username\":\"" + username + "\",\"password\":\"TestPass1!\",\"email\":\"" + email + "\"}";
@@ -130,12 +131,12 @@ class AuthControllerTest extends AbstractControllerTest {
 
         // HMS v5 — registration itself already auto-granted the Guest role (see
         // UserService.createUser), so verified is now enough on its own for login to
-        // succeed, with "Guest" as the token's role.
+        // succeed, with "Guest" as the token's only role.
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(loginBody))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.role").value("Guest"));
+                .andExpect(jsonPath("$.data.roles").value(contains("Guest")));
 
         String admin = adminToken();
         String roleName = "TestRole" + uniqueDigits(9);
@@ -153,13 +154,14 @@ class AuthControllerTest extends AbstractControllerTest {
                         .content("{\"roleIds\":[\"" + roleId + "\"]}"))
                 .andExpect(status().isNoContent());
 
-        // Holding both Guest and the newly-assigned real role now — AuthService.primaryRole
-        // always prefers the real one, so the token reflects that, not Guest.
+        // Holding both Guest and the newly-assigned real role now — the token/response
+        // carries every active role (Guest included), ordered by assignedAt, not just
+        // one "primary" pick.
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(loginBody))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.role").value(roleName));
+                .andExpect(jsonPath("$.data.roles").value(contains("Guest", roleName)));
     }
 
     @Test
