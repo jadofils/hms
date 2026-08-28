@@ -18,6 +18,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.data.web.PagedModel;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -53,7 +55,7 @@ public class PrescriptionController {
             array = @ArraySchema(schema = @Schema(type = "string")), example = "dateIssued,desc")
     @RequirePermission(resource = Resource.PRESCRIPTIONS, action = PermissionAction.READ)
     public ResponseEntity<ApiResult<PagedModel<PrescriptionResponse>>> getPrescriptions(
-            Pageable pageable,
+            @PageableDefault(size = 20, sort = "dateIssued", direction = Sort.Direction.DESC) Pageable pageable,
             @Parameter(description = "Filter to one patient's own prescription history",
                     example = "3fa85f64-5717-4562-b3fc-2c963f66afa6")
             @RequestParam(required = false) String patientId) {
