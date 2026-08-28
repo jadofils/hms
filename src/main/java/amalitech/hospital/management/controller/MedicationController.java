@@ -18,6 +18,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.data.web.PagedModel;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -54,7 +56,7 @@ public class MedicationController {
             array = @ArraySchema(schema = @Schema(type = "string")), example = "name,asc")
     @RequirePermission(resource = Resource.MEDICATIONS, action = PermissionAction.READ)
     public ResponseEntity<ApiResult<PagedModel<MedicationResponse>>> getMedications(
-            Pageable pageable,
+            @PageableDefault(size = 20, sort = "name", direction = Sort.Direction.ASC) Pageable pageable,
             @Parameter(description = "Filter to medications needing reorder across any of their own batches",
                     example = "true")
             @RequestParam(required = false) Boolean lowStock) {
