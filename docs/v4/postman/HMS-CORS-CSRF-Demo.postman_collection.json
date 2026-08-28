@@ -1,0 +1,199 @@
+{
+  "info": {
+    "_postman_id": "6b1f9e2a-3c4d-4e6a-9c7b-3d1a2f8e5b90",
+    "name": "HMS — CORS & CSRF Demo",
+    "description": "Real Postman evidence for HMS v4, User Stories 1.2 and 3.2 (docs/v4/README-V4.MD) — replaces the earlier curl-only verification recorded in docs/v4/v4-report.md.\n\nWhat this collection actually proves, and what it doesn't:\n- The CORS folder inspects the RAW server response to an OPTIONS preflight for an allowed vs. a disallowed Origin. Postman itself does NOT enforce CORS the way a browser does (it's a native client, not a page subject to the same-origin policy) — this verifies the SERVER's own CorsConfigurationSource decision, not client-side enforcement. For the enforcement side (a real browser actually blocking the response), see the companion docs/v4/cors-browser-test.html.\n- The CSRF folder relies on Postman's own per-domain cookie jar behaving like a browser's: the first GET stores the session cookie, and every later request in this collection to the same {{baseUrl}} automatically carries it — run the three CSRF requests in order (top to bottom, or via Collection Runner) for the token variable and cookie to be in place.\n\nSet {{baseUrl}} (collection variable below) to your running instance — defaults to http://localhost:8080.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080", "type": "string" },
+    { "key": "csrfToken", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "CORS (Epic 1.2)",
+      "item": [
+        {
+          "name": "Preflight — allowed origin (expect 200 + ACAO header)",
+          "request": {
+            "method": "OPTIONS",
+            "header": [
+              { "key": "Origin", "value": "http://localhost:3000" },
+              { "key": "Access-Control-Request-Method", "value": "GET" },
+              { "key": "Access-Control-Request-Headers", "value": "Authorization" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/roles",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "roles"]
+            },
+            "description": "http://localhost:3000 is one of app.cors-allowed-origins (see application.yaml / .env). Expect the server to echo it back in Access-Control-Allow-Origin."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Allowed origin gets 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Access-Control-Allow-Origin echoes the allowed origin\", function () {",
+                  "    pm.expect(pm.response.headers.get(\"Access-Control-Allow-Origin\")).to.eql(\"http://localhost:3000\");",
+                  "});",
+                  "pm.test(\"Credentials are allowed\", function () {",
+                  "    pm.expect(pm.response.headers.get(\"Access-Control-Allow-Credentials\")).to.eql(\"true\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Preflight — disallowed origin (expect 403, no ACAO header)",
+          "request": {
+            "method": "OPTIONS",
+            "header": [
+              { "key": "Origin", "value": "http://evil.example" },
+              { "key": "Access-Control-Request-Method", "value": "GET" },
+              { "key": "Access-Control-Request-Headers", "value": "Authorization" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/roles",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "roles"]
+            },
+            "description": "http://evil.example is NOT in app.cors-allowed-origins. A real browser making this same request from that origin would block reading the response even if the server returned 200 — Spring's CorsFilter goes further and rejects the preflight outright."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Disallowed origin rejected (403)\", function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});",
+                  "pm.test(\"No Access-Control-Allow-Origin header leaked\", function () {",
+                  "    pm.expect(pm.response.headers.has(\"Access-Control-Allow-Origin\")).to.eql(false);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "CSRF (Epic 3.1)",
+      "item": [
+        {
+          "name": "1. GET the demo page (stores session cookie + real CSRF token)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/docs/csrf-demo",
+              "host": ["{{baseUrl}}"],
+              "path": ["docs", "csrf-demo"]
+            },
+            "description": "Postman's own cookie jar stores the session cookie Spring Security's CsrfFilter sets here, the same way a browser would — every later request to {{baseUrl}} in this collection carries it automatically."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Page loads\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const body = pm.response.text();",
+                  "const match = body.match(/name=\"_csrf\" value=\"([^\"]+)\"/);",
+                  "pm.test(\"CSRF token found in the rendered page\", function () {",
+                  "    pm.expect(match).to.not.be.null;",
+                  "});",
+                  "if (match) {",
+                  "    pm.collectionVariables.set(\"csrfToken\", match[1]);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. POST with the real token (expect 200 — legitimate submission)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/x-www-form-urlencoded" }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "note", "value": "hello from Postman", "type": "text" },
+                { "key": "_csrf", "value": "{{csrfToken}}", "type": "text" }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/docs/csrf-demo",
+              "host": ["{{baseUrl}}"],
+              "path": ["docs", "csrf-demo"]
+            },
+            "description": "Run request 1 first so {{csrfToken}} and the session cookie are populated."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Valid token accepted (200)\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Response echoes the submitted note\", function () {",
+                  "    pm.expect(pm.response.text()).to.include(\"hello from Postman\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3. POST with no token (expect 403 — forged-request simulation)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/x-www-form-urlencoded" }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "note", "value": "forged from Postman", "type": "text" }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/docs/csrf-demo",
+              "host": ["{{baseUrl}}"],
+              "path": ["docs", "csrf-demo"]
+            },
+            "description": "Same session cookie as request 2 (Postman's cookie jar), but no _csrf field at all — stands in for a forged cross-site submission that has no way to know the token. CsrfFilter should reject this before CsrfDemoController.submit ever runs."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Missing token rejected (403)\", function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
