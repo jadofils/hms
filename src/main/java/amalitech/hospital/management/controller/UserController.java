@@ -21,6 +21,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.data.web.PagedModel;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -54,7 +56,8 @@ public class UserController {
             description = "Sort by property,direction. Possible properties: userId, username, email, isActive.",
             array = @ArraySchema(schema = @Schema(type = "string")), example = "username,desc")
     @RequirePermission(resource = Resource.USERS, action = PermissionAction.READ)
-    public ResponseEntity<ApiResult<PagedModel<UserResponse>>> getUsers(Pageable pageable) {
+    public ResponseEntity<ApiResult<PagedModel<UserResponse>>> getUsers(
+            @PageableDefault(size = 20, sort = "userId", direction = Sort.Direction.ASC) Pageable pageable) {
         return ResponseEntity.ok(ApiResult.of("Users retrieved", userService.getUsers(pageable)));
     }
 
