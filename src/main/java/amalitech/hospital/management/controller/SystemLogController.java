@@ -15,6 +15,8 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.data.web.PagedModel;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -59,7 +61,7 @@ public class SystemLogController {
     @PreAuthorize("@permissionCheck.has('system-logs', 'read')")
     @RequirePermission(resource = Resource.SYSTEM_LOGS, action = PermissionAction.READ)
     public ResponseEntity<ApiResult<PagedModel<SystemLogResponse>>> getSystemLogs(
-            Pageable pageable,
+            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable,
             @Parameter(description = "Filter by exact log level: DEBUG, INFO, WARNING, ERROR", example = "WARNING")
             @RequestParam(required = false) String logLevel,
             @Parameter(description = "Filter by source, case-insensitive contains match (e.g. RoleService)",
