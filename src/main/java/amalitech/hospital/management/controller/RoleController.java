@@ -20,6 +20,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.data.web.PagedModel;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -56,7 +58,8 @@ public class RoleController {
                     + "description, createdAt, updatedAt.",
             array = @ArraySchema(schema = @Schema(type = "string")), example = "roleName,asc")
     @RequirePermission(resource = Resource.ROLES, action = PermissionAction.READ)
-    public ResponseEntity<ApiResult<PagedModel<RoleResponse>>> getRoles(Pageable pageable) {
+    public ResponseEntity<ApiResult<PagedModel<RoleResponse>>> getRoles(
+            @PageableDefault(size = 20, sort = "roleName", direction = Sort.Direction.ASC) Pageable pageable) {
         return ResponseEntity.ok(ApiResult.of("Roles retrieved", roleService.getRoles(pageable)));
     }
 
@@ -169,7 +172,8 @@ public class RoleController {
             description = "Sort by property,direction. Possible properties: roleId, roleName.",
             array = @ArraySchema(schema = @Schema(type = "string")), example = "roleName,asc")
     @RequirePermission(resource = Resource.ROLES, action = PermissionAction.READ)
-    public ResponseEntity<ApiResult<PagedModel<RoleResponse>>> getAssignedRoles(Pageable pageable) {
+    public ResponseEntity<ApiResult<PagedModel<RoleResponse>>> getAssignedRoles(
+            @PageableDefault(size = 20, sort = "roleId", direction = Sort.Direction.ASC) Pageable pageable) {
         return ResponseEntity.ok(ApiResult.of("Assigned roles retrieved", roleService.getAssignedRoles(pageable)));
     }
 
