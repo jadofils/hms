@@ -68,21 +68,26 @@ public class SecurityConfig {
 
     /**
      * HMS v4, Epic 1.2 — explicit allow-list (never a bare {@code "*"}, which the
-     * browser itself refuses to combine with credentialed requests anyway). Origins come
-     * from {@code app.cors-allowed-origins} (comma-separated, {@code .env}-driven) rather
-     * than being hardcoded here, so a deployment can widen/narrow the list without a
-     * rebuild. Applies to every route uniformly — narrower, per-route CORS rules aren't
-     * needed since this API has no routes that are simultaneously public *and* meant to
-     * be unreachable from a browser.
+     * browser itself refuses to combine with credentialed requests anyway). Every value
+     * here comes from {@code app.cors-*} (comma-separated where a list, {@code .env}-
+     * driven) rather than being hardcoded, so a deployment can widen/narrow any of them —
+     * origins, methods, headers, or whether credentials are allowed — without a rebuild.
+     * Defaults match this project's original hardcoded values, so leaving the {@code .env}
+     * entries unset reproduces the exact same behavior as before. Applies to every route
+     * uniformly — narrower, per-route CORS rules aren't needed since this API has no
+     * routes that are simultaneously public *and* meant to be unreachable from a browser.
      */
     @Bean
     public CorsConfigurationSource corsConfigurationSource(
-            @Value("${app.cors-allowed-origins}") List<String> allowedOrigins) {
+            @Value("${app.cors-allowed-origins}") List<String> allowedOrigins,
+            @Value("${app.cors-allowed-methods:GET,POST,PUT,PATCH,DELETE,OPTIONS}") List<String> allowedMethods,
+            @Value("${app.cors-allowed-headers:Authorization,Content-Type,Accept}") List<String> allowedHeaders,
+            @Value("${app.cors-allow-credentials:true}") boolean allowCredentials) {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(allowedOrigins);
-        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept"));
-        configuration.setAllowCredentials(true);
+        configuration.setAllowedMethods(allowedMethods);
+        configuration.setAllowedHeaders(allowedHeaders);
+        configuration.setAllowCredentials(allowCredentials);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
         return source;
