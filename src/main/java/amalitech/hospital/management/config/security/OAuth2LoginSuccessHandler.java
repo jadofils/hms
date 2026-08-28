@@ -38,7 +38,7 @@ import java.util.Map;
  * with a real {@link HttpServletResponse} to write to — so it can return the same
  * {@code ApiResult<LoginResponse>} JSON shape {@code POST /auth/login} does, and the
  * browser just renders it as a JSON page. Confidentiality-sensitive claims
- * (userId/username/role) are protected the same way they are for every other JWT this
+ * (userId/username/roles) are protected the same way they are for every other JWT this
  * app issues — {@code JwtService} AES-256-GCM-encrypts them before embedding them in
  * {@code token}; this handler doesn't need to do anything extra for that.
  */
