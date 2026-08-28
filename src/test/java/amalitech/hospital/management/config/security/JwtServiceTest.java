@@ -14,6 +14,7 @@ import java.lang.reflect.Method;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -43,27 +44,34 @@ class JwtServiceTest {
 
     @Test
     void generateToken_thenVerify_roundTripsDecryptedIdentity() {
-        String token = jwtService.generateToken("user-1", "alice", "ADMIN", "jti-1");
+        String token = jwtService.generateToken("user-1", "alice", List.of("ADMIN"), "jti-1");
 
         JwtService.Identity identity = jwtService.verify(token);
 
         assertThat(identity.userId()).isEqualTo("user-1");
         assertThat(identity.username()).isEqualTo("alice");
-        assertThat(identity.role()).isEqualTo("ADMIN");
+        assertThat(identity.roles()).isEqualTo(List.of("ADMIN"));
         assertThat(identity.jti()).isEqualTo("jti-1");
         assertThat(identity.expiresAt()).isAfter(Instant.now());
     }
 
     @Test
+    void generateToken_roundTripsMultipleRoles() {
+        String token = jwtService.generateToken("user-1", "alice", List.of("ADMIN", "DOCTOR"), "jti-1");
+        JwtService.Identity identity = jwtService.verify(token);
+        assertThat(identity.roles()).containsExactly("ADMIN", "DOCTOR");
+    }
+
+    @Test
     void generateToken_withoutExplicitJti_generatesARandomOne() {
-        String token = jwtService.generateToken("user-1", "alice", "ADMIN");
+        String token = jwtService.generateToken("user-1", "alice", List.of("ADMIN"));
         JwtService.Identity identity = jwtService.verify(token);
         assertThat(identity.jti()).isNotBlank();
     }
 
     @Test
     void generateToken_neverEmbedsIdentityClaimsAsPlaintext() {
-        String token = jwtService.generateToken("user-1", "alice", "ADMIN", "jti-1");
+        String token = jwtService.generateToken("user-1", "alice", List.of("ADMIN"), "jti-1");
 
         assertThat(token).doesNotContain("user-1");
         assertThat(token).doesNotContain("alice");
@@ -72,7 +80,7 @@ class JwtServiceTest {
 
     @Test
     void verify_throwsJWTVerificationException_whenSignatureTampered() {
-        String token = jwtService.generateToken("user-1", "alice", "ADMIN", "jti-1");
+        String token = jwtService.generateToken("user-1", "alice", List.of("ADMIN"), "jti-1");
         String tampered = token.substring(0, token.length() - 2) + "xx";
 
         assertThatThrownBy(() -> jwtService.verify(tampered))
@@ -82,7 +90,7 @@ class JwtServiceTest {
     @Test
     void verify_throwsJWTVerificationException_whenSignedByADifferentSecret() {
         JwtService otherService = new JwtService("a-completely-different-secret-32chars!!", 8, redisTemplate);
-        String token = otherService.generateToken("user-1", "alice", "ADMIN", "jti-1");
+        String token = otherService.generateToken("user-1", "alice", List.of("ADMIN"), "jti-1");
 
         assertThatThrownBy(() -> jwtService.verify(token))
                 .isInstanceOf(JWTVerificationException.class);
