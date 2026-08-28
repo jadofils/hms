@@ -18,6 +18,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.data.web.PagedModel;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -53,7 +55,7 @@ public class MedicalInventoryController {
             array = @ArraySchema(schema = @Schema(type = "string")), example = "expiryDate,asc")
     @RequirePermission(resource = Resource.MEDICAL_INVENTORY, action = PermissionAction.READ)
     public ResponseEntity<ApiResult<PagedModel<MedicalInventoryResponse>>> getInventoryRecords(
-            Pageable pageable,
+            @PageableDefault(size = 20, sort = "expiryDate", direction = Sort.Direction.ASC) Pageable pageable,
             @Parameter(description = "Filter to only batches at or below their own reorder level — a "
                     + "restock-alert worklist", example = "true") @RequestParam(required = false) Boolean lowStock,
             @Parameter(description = "Filter to every batch on hand for one medication",
