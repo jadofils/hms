@@ -19,7 +19,9 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.Arrays;
 import java.util.Base64;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -70,30 +72,46 @@ public class JwtService {
         this.redisTemplate = redisTemplate;
     }
 
-    /** Decrypted identity extracted from a verified token, plus its jti/expiry for logout. */
-    public record Identity(String userId, String username, String role, String jti, Instant expiresAt) {}
+    /** Decrypted identity extracted from a verified token, plus its jti/expiry for logout.
+     *  {@code roles} is every active role name the caller held at login time — a user can
+     *  hold several simultaneously (see CLAUDE.md's User↔Role many-to-many note), and the
+     *  whole point of embedding all of them is so every one of this app's permission
+     *  checks (see {@code AuthorizationAspect}/{@code PermissionExpressions}) treats a
+     *  permission as granted if <em>any</em> held role grants it, without a DB round trip
+     *  per request. */
+    public record Identity(String userId, String username, List<String> roles, String jti, Instant expiresAt) {}
 
     public long getExpiryHours() {
         return expiryHours;
     }
 
-    /** Builds a signed token with userId/username/role embedded as encrypted claims. */
-    public String generateToken(String userId, String username, String role, String jti) {
+    /**
+     * Builds a signed token with userId/username/roles embedded as encrypted claims.
+     * {@code roles} is joined into one comma-separated string and encrypted as a single
+     * claim, same as any other claim here — {@code java-jwt} has no native "list claim"
+     * concept that survives this app's own per-claim AES-256-GCM encryption, and a plain
+     * delimiter is enough since a real role name can never itself contain a comma
+     * ({@code RoleRequest.roleName} isn't validated against that, but every seeded/admin-
+     * created role name in practice is a short identifier, not free text). A single-role
+     * token from before this list was introduced still decrypts correctly — splitting a
+     * one-name string on "," yields the same one-element list either way.
+     */
+    public String generateToken(String userId, String username, List<String> roles, String jti) {
         Instant now = Instant.now();
         Instant expiry = now.plusMillis(expiryMs);
         return JWT.create()
                 .withJWTId(jti)
                 .withClaim(CLAIM_USER_ID, encrypt(userId))
                 .withClaim(CLAIM_USERNAME, encrypt(username))
-                .withClaim(CLAIM_ROLE, encrypt(role))
+                .withClaim(CLAIM_ROLE, encrypt(String.join(",", roles)))
                 .withIssuedAt(now)
                 .withExpiresAt(expiry)
                 .sign(algorithm);
     }
 
     /** Convenience overload — generates its own random jti. */
-    public String generateToken(String userId, String username, String role) {
-        return generateToken(userId, username, role, UUID.randomUUID().toString());
+    public String generateToken(String userId, String username, List<String> roles) {
+        return generateToken(userId, username, roles, UUID.randomUUID().toString());
     }
 
     /**
@@ -106,10 +124,12 @@ public class JwtService {
      */
     public Identity verify(String token) {
         DecodedJWT jwt = verifier.verify(token);
+        List<String> roles = Arrays.stream(decrypt(jwt.getClaim(CLAIM_ROLE).asString()).split(","))
+                .map(String::trim).toList();
         return new Identity(
                 decrypt(jwt.getClaim(CLAIM_USER_ID).asString()),
                 decrypt(jwt.getClaim(CLAIM_USERNAME).asString()),
-                decrypt(jwt.getClaim(CLAIM_ROLE).asString()),
+                roles,
                 jwt.getId(),
                 jwt.getExpiresAtAsInstant());
     }
