@@ -18,6 +18,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.data.web.PagedModel;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -55,7 +57,7 @@ public class PatientController {
             array = @ArraySchema(schema = @Schema(type = "string")), example = "lastName,desc")
     @RequirePermission(resource = Resource.PATIENTS, action = PermissionAction.READ)
     public ResponseEntity<ApiResult<PagedModel<PatientResponse>>> getPatients(
-            Pageable pageable,
+            @PageableDefault(size = 20, sort = "patientId", direction = Sort.Direction.ASC) Pageable pageable,
             @Parameter(description = "Filter by status: active, inactive", example = "active")
             @RequestParam(required = false) String status,
             @Parameter(description = "Filter by gender: M, F, Other", example = "F")
