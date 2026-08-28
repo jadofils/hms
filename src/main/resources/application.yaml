@@ -136,8 +136,14 @@ app:
   # safe for local dev; override via .env for staging/prod.
   frontend-base-url: ${APP_FRONTEND_BASE_URL:http://localhost:3000}
   support-email: ${APP_SUPPORT_EMAIL:support@hms-hospital.com}
-  # CORS (HMS v4, Epic 1.2) — see SecurityConfig.corsConfigurationSource.
+  # CORS (HMS v4, Epic 1.2) — see SecurityConfig.corsConfigurationSource. All four are
+  # comma-separated lists (except allow-credentials, a bare boolean) with defaults
+  # matching this project's original hardcoded values — override only what a given
+  # deployment actually needs to change.
   cors-allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:http://localhost:3000}
+  cors-allowed-methods: ${APP_CORS_ALLOWED_METHODS:GET,POST,PUT,PATCH,DELETE,OPTIONS}
+  cors-allowed-headers: ${APP_CORS_ALLOWED_HEADERS:Authorization,Content-Type,Accept}
+  cors-allow-credentials: ${APP_CORS_ALLOW_CREDENTIALS:true}
   # How long a self-registration's email-verification link stays valid — see
   # UserService.createUser (generates it) / AuthService.verifyEmail (consumes it).
   email-verification-ttl-hours: ${APP_EMAIL_VERIFICATION_TTL_HOURS:24}
@@ -150,6 +156,13 @@ app:
   maintenance:
     log-retention-days: ${APP_LOG_RETENTION_DAYS:30}
     idle-user-days: ${APP_IDLE_USER_DAYS:90}
+  # Global per-client-IP request-rate limit, ahead of every endpoint (see
+  # RateLimitFilter/RateLimitFilterConfig) — disabled in application-test.yaml, since the
+  # controller test suite fires far more than this through MockMvc's fixed 127.0.0.1.
+  rate-limit:
+    enabled: ${APP_RATE_LIMIT_ENABLED:true}
+    max-requests: ${APP_RATE_LIMIT_MAX_REQUESTS:100}
+    window-seconds: ${APP_RATE_LIMIT_WINDOW_SECONDS:60}
 
 # Error responses — GlobalExceptionHandler maps every exception to a clean ErrorResponse
 # body, so Spring Boot's own error page should never actually be hit. This is defense in
