@@ -15,6 +15,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 import java.util.List;
 import java.util.Locale;
+import java.util.stream.Collectors;
 
 /**
  * Parses a Bearer JWT (if present) into the Spring Security context for the current
@@ -41,16 +42,18 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 if (jwtService.isBlocklisted(identity.jti())) {
                     SecurityContextHolder.clearContext();
                 } else {
-                    var principal = new AuthenticatedUser(identity.userId(), identity.username(), identity.role());
-                    var authority = new SimpleGrantedAuthority("ROLE_" + identity.role().toUpperCase(Locale.ROOT));
+                    var principal = new AuthenticatedUser(identity.userId(), identity.username(), identity.roles());
+                    List<SimpleGrantedAuthority> authorities = identity.roles().stream()
+                            .map(role -> new SimpleGrantedAuthority("ROLE_" + role.toUpperCase(Locale.ROOT)))
+                            .collect(Collectors.toList());
                     var authentication = new UsernamePasswordAuthenticationToken(
-                            principal, null, List.of(authority));
+                            principal, null, authorities);
                     SecurityContextHolder.getContext().setAuthentication(authentication);
                 }
             } catch (JWTVerificationException _) {
                 SecurityContextHolder.clearContext();
             }
         }
-        filterChain.doFilter(request, response);
+       filterChain.doFilter(request, response);
     }
 }
