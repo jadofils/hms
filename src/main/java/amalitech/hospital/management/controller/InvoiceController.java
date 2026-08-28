@@ -18,6 +18,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.data.web.PagedModel;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -53,7 +55,7 @@ public class InvoiceController {
             array = @ArraySchema(schema = @Schema(type = "string")), example = "issuedAt,desc")
     @RequirePermission(resource = Resource.INVOICES, action = PermissionAction.READ)
     public ResponseEntity<ApiResult<PagedModel<InvoiceResponse>>> getInvoices(
-            Pageable pageable,
+            @PageableDefault(size = 20, sort = "issuedAt", direction = Sort.Direction.DESC) Pageable pageable,
             @Parameter(description = "Filter by payment status: unpaid, partially_paid, paid", example = "unpaid")
             @RequestParam(required = false) String paymentStatus) {
         return ResponseEntity.ok(ApiResult.of("Invoices retrieved", invoiceService.getInvoices(pageable, paymentStatus)));
