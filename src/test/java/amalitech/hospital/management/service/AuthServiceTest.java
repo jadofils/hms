@@ -42,6 +42,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
@@ -180,14 +181,14 @@ class AuthServiceTest {
             session.setSessionId("session-1"); // simulates @GeneratedValue on insert
             return session;
         });
-        when(jwtService.generateToken("user-1", "alice", "Admin", "session-1")).thenReturn("signed-token");
+        when(jwtService.generateToken("user-1", "alice", List.of("Admin"), "session-1")).thenReturn("signed-token");
 
         LoginResponse response = authService.login(loginRequest("alice", "pw"), httpServletRequest);
 
         assertThat(response.getToken()).isEqualTo("signed-token");
         assertThat(response.getUserId()).isEqualTo("user-1");
-        assertThat(response.getRole()).isEqualTo("Admin");
-        verify(jwtService).generateToken("user-1", "alice", "Admin", "session-1");
+        assertThat(response.getRoles()).isEqualTo(List.of("Admin"));
+        verify(jwtService).generateToken("user-1", "alice", List.of("Admin"), "session-1");
     }
 
     @Test
@@ -202,7 +203,7 @@ class AuthServiceTest {
             session.setSessionId("session-1");
             return session;
         });
-        when(jwtService.generateToken(anyString(), anyString(), anyString(), anyString())).thenReturn("signed-token");
+        when(jwtService.generateToken(anyString(), anyString(), anyList(), anyString())).thenReturn("signed-token");
 
         LoginResponse response = authService.login(loginRequest("alice@example.com", "pw"), httpServletRequest);
 
@@ -211,7 +212,10 @@ class AuthServiceTest {
     }
 
     @Test
-    void login_picksEarliestAssignedRole_whenUserHoldsMultipleRoles() {
+    void login_returnsEveryActiveRole_orderedByAssignedAt_whenUserHoldsMultipleRoles() {
+        // HMS — a user can hold several roles simultaneously; the token now carries all
+        // of them (permission checks treat any held role's grant as sufficient), not just
+        // one "primary" role picked by assignment order the way it used to.
         when(userRepository.findByUsername("alice")).thenReturn(Optional.of(existingUser));
         when(passwordEncoder.matches("pw", "hashed-pw")).thenReturn(true);
 
@@ -230,11 +234,11 @@ class AuthServiceTest {
             session.setSessionId("session-1");
             return session;
         });
-        when(jwtService.generateToken(anyString(), anyString(), anyString(), anyString())).thenReturn("token");
+        when(jwtService.generateToken(anyString(), anyString(), anyList(), anyString())).thenReturn("token");
 
         LoginResponse response = authService.login(loginRequest("alice", "pw"), httpServletRequest);
 
-        assertThat(response.getRole()).isEqualTo("Admin");
+        assertThat(response.getRoles()).containsExactly("Admin", "Receptionist"); // earliest-assigned first
     }
 
     @Test
@@ -251,11 +255,12 @@ class AuthServiceTest {
     }
 
     @Test
-    void login_prefersEarliestNonGuestRole_evenWhenGuestWasAssignedFirst() {
+    void login_includesGuestAlongsideARealRole_whenBothAreActive() {
         // The exact shape DataSeeder.seedPeople now produces: UserService.createUser
         // auto-grants Guest first, then the seeded caller's real role is assigned
-        // afterward — the token must still say "Admin", not "Guest", purely because of
-        // assignment order.
+        // afterward. Both are now returned/embedded — Guest is no longer excluded from
+        // being "the" role the way an earlier, single-role design picked one; a
+        // permission is granted if any held role (Guest included) grants it.
         when(userRepository.findByUsername("alice")).thenReturn(Optional.of(existingUser));
         when(passwordEncoder.matches("pw", "hashed-pw")).thenReturn(true);
 
@@ -274,11 +279,11 @@ class AuthServiceTest {
             session.setSessionId("session-1");
             return session;
         });
-        when(jwtService.generateToken(anyString(), anyString(), anyString(), anyString())).thenReturn("token");
+        when(jwtService.generateToken(anyString(), anyString(), anyList(), anyString())).thenReturn("token");
 
         LoginResponse response = authService.login(loginRequest("alice", "pw"), httpServletRequest);
 
-        assertThat(response.getRole()).isEqualTo("Admin");
+        assertThat(response.getRoles()).containsExactly("Guest", "Admin"); // earliest-assigned first
     }
 
     @Test
@@ -295,11 +300,11 @@ class AuthServiceTest {
             session.setSessionId("session-1");
             return session;
         });
-        when(jwtService.generateToken(anyString(), anyString(), eq("Guest"), anyString())).thenReturn("token");
+        when(jwtService.generateToken(anyString(), anyString(), eq(List.of("Guest")), anyString())).thenReturn("token");
 
         LoginResponse response = authService.login(loginRequest("alice", "pw"), httpServletRequest);
 
-        assertThat(response.getRole()).isEqualTo("Guest");
+        assertThat(response.getRoles()).isEqualTo(List.of("Guest"));
     }
 
     @Test
@@ -382,12 +387,12 @@ class AuthServiceTest {
             session.setSessionId("session-1");
             return session;
         });
-        when(jwtService.generateToken(anyString(), anyString(), eq("Guest"), anyString())).thenReturn("signed-token");
+        when(jwtService.generateToken(anyString(), anyString(), eq(List.of("Guest")), anyString())).thenReturn("signed-token");
 
         LoginResponse response = authService.loginWithGoogle(
                 "newperson@example.com", "New Person", httpServletRequest);
 
-        assertThat(response.getRole()).isEqualTo("Guest");
+        assertThat(response.getRoles()).isEqualTo(List.of("Guest"));
         verify(userService).assignDefaultGuestRole(any(User.class));
         verify(inviteService).consumeInviteIfAny("newperson@example.com");
 
@@ -421,12 +426,12 @@ class AuthServiceTest {
             session.setSessionId("session-1");
             return session;
         });
-        when(jwtService.generateToken(anyString(), anyString(), eq("Doctor"), anyString())).thenReturn("token");
+        when(jwtService.generateToken(anyString(), anyString(), eq(List.of("Doctor")), anyString())).thenReturn("token");
 
         LoginResponse response = authService.loginWithGoogle(
                 "newperson@example.com", "New Person", httpServletRequest);
 
-        assertThat(response.getRole()).isEqualTo("Doctor");
+        assertThat(response.getRoles()).isEqualTo(List.of("Doctor"));
         verify(userService).assignRoleToNewAccount(any(User.class), eq("doctor-role-id"));
         verify(userService, never()).assignDefaultGuestRole(any());
     }
@@ -451,7 +456,7 @@ class AuthServiceTest {
             session.setSessionId("session-1");
             return session;
         });
-        when(jwtService.generateToken(anyString(), anyString(), anyString(), anyString())).thenReturn("token");
+        when(jwtService.generateToken(anyString(), anyString(), anyList(), anyString())).thenReturn("token");
 
         authService.loginWithGoogle("alice@example.com", "Alice", httpServletRequest);
 
@@ -470,7 +475,7 @@ class AuthServiceTest {
             session.setSessionId("session-1");
             return session;
         });
-        when(jwtService.generateToken("user-1", "alice", "Admin", "session-1")).thenReturn("signed-token");
+        when(jwtService.generateToken("user-1", "alice", List.of("Admin"), "session-1")).thenReturn("signed-token");
 
         LoginResponse response = authService.loginWithGoogle("alice@example.com", "Alice", httpServletRequest);
 
@@ -490,7 +495,7 @@ class AuthServiceTest {
             session.setSessionId("session-1");
             return session;
         });
-        when(jwtService.generateToken(anyString(), anyString(), anyString(), anyString())).thenReturn("token");
+        when(jwtService.generateToken(anyString(), anyString(), anyList(), anyString())).thenReturn("token");
 
         authService.loginWithGoogle("alice@example.com", "Alice", httpServletRequest);
 
@@ -537,7 +542,7 @@ class AuthServiceTest {
             session.setSessionId("session-1");
             return session;
         });
-        when(jwtService.generateToken(anyString(), anyString(), anyString(), anyString())).thenReturn("token");
+        when(jwtService.generateToken(anyString(), anyString(), anyList(), anyString())).thenReturn("token");
 
         authService.login(loginRequest("alice", "pw"), httpServletRequest);
 
@@ -549,7 +554,7 @@ class AuthServiceTest {
     @Test
     void logout_blocklistsTokenAndRevokesSession() {
         Instant expiresAt = Instant.now().plusSeconds(60);
-        JwtService.Identity identity = new JwtService.Identity("user-1", "alice", "Admin", "session-1", expiresAt);
+        JwtService.Identity identity = new JwtService.Identity("user-1", "alice", List.of("Admin"), "session-1", expiresAt);
         when(jwtService.verify("raw-token")).thenReturn(identity);
 
         UserSession session = new UserSession();
@@ -568,7 +573,7 @@ class AuthServiceTest {
     @Test
     void logout_stillBlocklists_evenWhenNoMatchingSessionRow() {
         Instant expiresAt = Instant.now().plusSeconds(60);
-        JwtService.Identity identity = new JwtService.Identity("user-1", "alice", "Admin", "session-1", expiresAt);
+        JwtService.Identity identity = new JwtService.Identity("user-1", "alice", List.of("Admin"), "session-1", expiresAt);
         when(jwtService.verify("raw-token")).thenReturn(identity);
         when(userSessionRepository.findById("session-1")).thenReturn(Optional.empty());
 
