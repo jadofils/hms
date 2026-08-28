@@ -44,7 +44,14 @@ public class AppConfig {
                                 + "Users & role/permission management is documented first; other domains "
                                 + "(patients, appointments, pharmacy, ...) follow the same convention as they're added. "
                                 + "A token can also be obtained via POST /api/v1/auth/login instead of Google — "
-                                + "both return the same {\"data\":{\"token\":\"...\"}} shape."))
+                                + "both return the same {\"data\":{\"token\":\"...\"}} shape.\n\n"
+                                + "### [Click here to try the CSRF protection demo](/docs/csrf-demo)\n"
+                                + "The one path in this app where CSRF protection is deliberately left on "
+                                + "(see `CsrfDemoSecurityConfig`'s Javadoc) — everywhere else is disabled since "
+                                + "bearer-JWT auth gives a forged cross-site request nothing to ride on. Opens a "
+                                + "page with two forms posting to the same endpoint: one carries a valid, "
+                                + "session-bound token and succeeds (200); the other omits it, and Spring "
+                                + "Security's `CsrfFilter` rejects it (403) before it ever reaches a controller."))
                 .components(new Components().addSecuritySchemes(BEARER_SCHEME, new SecurityScheme()
                         .type(SecurityScheme.Type.HTTP)
                         .scheme("bearer")
@@ -98,12 +105,45 @@ public class AppConfig {
                                             + "redirects back to this app (never something you call directly), "
                                             + "which returns the login result as JSON: "
                                             + "{\"status\":\"success\",\"data\":{\"token\":\"...\",\"userId\":\"...\","
-                                            + "\"username\":\"...\",\"role\":\"...\"}} on success (same shape POST "
+                                            + "\"username\":\"...\",\"roles\":[\"...\"]}} on success (same shape POST "
                                             + "/api/v1/auth/login returns), or a 401 error body if the account is "
                                             + "deactivated or has no role.")
                                     .responses(new ApiResponses()
                                             .addApiResponse("302", new ApiResponse()
                                                     .description("Redirect to Google's own consent screen")))));
+        };
+    }
+
+    /**
+     * Manually documents the CSRF demo page in the generated spec, for the same reason
+     * {@link #googleOAuth2EndpointsCustomizer()} manually documents the OAuth2 login
+     * entry point: springdoc only introspects {@code @RestController} handler methods
+     * (confirmed against the live {@code /v3/api-docs} output — a plain {@code @Controller}
+     * returning view names, like {@code CsrfDemoController}, never shows up there on its
+     * own), so without this it would be invisible from Swagger UI entirely despite being a
+     * real, reachable page.
+     */
+    @Bean
+    public GlobalOpenApiCustomizer csrfDemoEndpointCustomizer() {
+        return openApi -> {
+            if (openApi.getPaths() == null) {
+                openApi.setPaths(new Paths());
+            }
+            openApi.getPaths()
+                    .addPathItem("/docs/csrf-demo", new PathItem().get(
+                            new Operation()
+                                    .addTagsItem("Security")
+                                    .summary("CSRF protection mechanism demo")
+                                    .description("**[Click here to open the demo](/docs/csrf-demo)** "
+                                            + "(not callable from \"Try it out\" below — open the link instead, "
+                                            + "it's an HTML page, not a JSON endpoint). Renders two forms posting "
+                                            + "to the same endpoint: one with a valid, session-bound CSRF token "
+                                            + "(succeeds, 200), one without (rejected by CsrfFilter, 403). This is "
+                                            + "the only path in the app where CSRF protection is left on — see "
+                                            + "SecurityConfig's own Javadoc for why every other endpoint disables it.")
+                                    .responses(new ApiResponses()
+                                            .addApiResponse("200", new ApiResponse()
+                                                    .description("The demo page itself (HTML, not JSON)")))));
         };
     }
 }
