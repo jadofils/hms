@@ -28,6 +28,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+
+import java.util.List;
 import org.springframework.web.bind.annotation.RestController;
 import io.micrometer.core.annotation.Timed;
 
@@ -130,16 +132,17 @@ public class AuthController {
     @Operation(summary = "The current caller's live profile",
             description = "username/email/isActive are a live, cache-backed lookup (see UserService.getUser) "
                     + "so they reflect a profile update (PUT /api/v1/users/{userId}) immediately — only "
-                    + "`role` is the claim embedded in this request's own Bearer token at login time.")
+                    + "`roles` (every role this account held at login time — a user can hold several at "
+                    + "once) is the claim embedded in this request's own Bearer token at login time.")
     @ApiResponse(responseCode = "200", description = "Token present and valid")
     @ApiResponse(responseCode = "401", description = "No token, or token invalid/expired")
     public ResponseEntity<ApiResult<MeResponse>> me(Authentication authentication) {
         if (authentication == null
-                || !(authentication.getPrincipal() instanceof AuthenticatedUser(String userId, String username, String role))) {
+                || !(authentication.getPrincipal() instanceof AuthenticatedUser(String userId, String username, List<String> roles))) {
             throw new UnauthorizedException("No token provided");
         }
         UserResponse user = userService.getUser(userId);
         return ResponseEntity.ok(ApiResult.of("Current session identity",
-                new MeResponse(user.getUserId(), user.getUsername(), user.getEmail(), user.getIsActive(), role)));
+                new MeResponse(user.getUserId(), user.getUsername(), user.getEmail(), user.getIsActive(), roles)));
     }
 }
