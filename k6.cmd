@@ -23,7 +23,16 @@ REM aborted the ENTIRE run (0 requests made), not just the dashboard. Deliberate
 REM left out for that reason; Prometheus is the live-view mechanism this script uses.
 REM
 REM Optional overrides (set as env vars before running): VUS (default 50),
-REM RAMP_UP/STEADY/RAMP_DOWN (default 10s/40s/10s)
+REM RAMP_UP/STEADY/RAMP_DOWN (default 10s/40s/10s), CREATE_APPOINTMENTS (default false --
+REM see hms-load-test.js's header comment: true dispatches a real confirmation email per
+REM iteration via mailTaskExecutor).
+REM
+REM RateLimitFilter (config/RateLimitFilterConfig.java) enforces a global per-client-IP
+REM request limit ahead of every endpoint (100 req/60s by default) -- this test drives
+REM far more than that from one machine on purpose. Set APP_RATE_LIMIT_ENABLED=false (or
+REM raise APP_RATE_LIMIT_MAX_REQUESTS) in .env before running this, then restore it after,
+REM or the run will start seeing 429s partway through instead of the real latency this
+REM test is trying to measure.
 
 set K6_HOME=
 if exist ".env" (
@@ -50,6 +59,7 @@ if "%VUS%"=="" set VUS=50
 if "%RAMP_UP%"=="" set RAMP_UP=10s
 if "%STEADY%"=="" set STEADY=40s
 if "%RAMP_DOWN%"=="" set RAMP_DOWN=10s
+if "%CREATE_APPOINTMENTS%"=="" set CREATE_APPOINTMENTS=false
 set APP_BASE_URL=http://localhost:8080
 
 set PARAMS_FILE=%TEMP%\hms_load_test_params.txt
@@ -77,6 +87,7 @@ call "%K6_HOME%\k6.exe" run --out experimental-prometheus-rw ^
     --env BASE_URL=%APP_BASE_URL% --env AUTH_TOKEN=%AUTH_TOKEN% ^
     --env PATIENT_ID=%PATIENT_ID% --env DOCTOR_ID=%DOCTOR_ID% --env VUS=%VUS% ^
     --env RAMP_UP=%RAMP_UP% --env STEADY=%STEADY% --env RAMP_DOWN=%RAMP_DOWN% ^
+    --env CREATE_APPOINTMENTS=%CREATE_APPOINTMENTS% ^
     docs\v5\load-testing\hms-load-test.js
 set K6_EXIT=%errorlevel%
 
