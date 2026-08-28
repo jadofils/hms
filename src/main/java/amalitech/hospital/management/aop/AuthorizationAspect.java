@@ -51,10 +51,10 @@ public class AuthorizationAspect {
 
         String resource = requirePermission.resource().getDbValue();
         String action = requirePermission.action().getDbValue();
-        boolean granted = rolePermissionRepository.hasGrantedPermission(user.role(), resource, action);
+        boolean granted = rolePermissionRepository.hasGrantedPermission(user.roles(), resource, action);
         if (!granted) {
             throw new AccessDeniedException(
-                    "Role '" + user.role() + "' lacks permission " + resource + ":" + action);
+                    "None of roles " + user.roles() + " has permission " + resource + ":" + action);
         }
     }
 }
