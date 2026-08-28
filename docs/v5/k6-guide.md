@@ -58,22 +58,49 @@ export default function () {
     check(res, { 'single-item status is 200': (r) => r.status === 200 });
     singleItemDuration.add(res.timings.duration);
   }
+
+  // Write path — a fresh patient every iteration (uniqueDigits keeps phone/email
+  // non-colliding), so the run also exercises DB inserts/HikariCP checkout, not just
+  // cache-hit reads.
+  const patientRes = http.post(`${BASE_URL}/api/v1/patients`, patientPayload, jsonHeaders);
+  check(patientRes, { 'patient create status is 201': (r) => r.status === 201 });
+  writeDuration.add(patientRes.timings.duration);
+
+  // Opt-in only (CREATE_APPOINTMENTS=true) — creates an appointment for that new
+  // patient too, which additionally exercises the AppointmentCreatedEvent → async mail
+  // path (mailTaskExecutor). Off by default since it sends a real email per iteration.
+  if (CREATE_APPOINTMENTS) { /* ... */ }
+
   sleep(0.5);
 }
 ```
 This function is **one iteration of one virtual user**. Every active VU runs this
 function in a loop for the whole test duration: hit all four listing endpoints, hit
-both single-item endpoints, sleep half a second, repeat. `check(...)` records a
-pass/fail assertion (shows up in the summary as `checks_succeeded`/`checks_failed`) —
-it doesn't stop the test on failure, it just counts it. `listingDuration`/
-`singleItemDuration` are custom metrics (k6's `Trend` type) added specifically so this
-project's report can compare listings-vs-single-item latency directly, the same
-distinction `jprofiler-report.md`'s HTTP-probe table draws.
+both single-item endpoints, create a new patient, optionally create an appointment for
+it, sleep half a second, repeat. `check(...)` records a pass/fail assertion (shows up
+in the summary as `checks_succeeded`/`checks_failed`) — it doesn't stop the test on
+failure, it just counts it. `listingDuration`/`singleItemDuration`/`writeDuration` are
+custom metrics (k6's `Trend` type) added specifically so this project's report can
+compare listing vs. single-item vs. write latency directly, the same distinction
+`jprofiler-report.md`'s HTTP-probe table draws — a write (DB insert, possibly a cache
+eviction) is a meaningfully different cost profile than either kind of read.
 
 Auth: the script takes a pre-fetched JWT via `--env AUTH_TOKEN=...` rather than logging
 in itself inside the VU loop — see the file's own header comment for why (this measures
 concurrent *authenticated* traffic, not login throughput, which would be a different
 test with a different bottleneck profile entirely).
+
+**Before running this against a live app**, two things the script's own header comment
+also calls out:
+- `RateLimitFilter` enforces a global per-client-IP request limit (100 req/60s by
+  default) ahead of every endpoint — this test deliberately drives far more than that
+  from one machine. Set `APP_RATE_LIMIT_ENABLED=false` (or raise
+  `APP_RATE_LIMIT_MAX_REQUESTS`) in `.env` first, then restore it afterward, or the run
+  starts seeing `429`s partway through instead of the real latency being measured.
+- `CREATE_APPOINTMENTS=true` dispatches a real confirmation email per iteration via
+  `MailEventListener`/`mailTaskExecutor` — a real burst of outbound Gmail SMTP traffic
+  at 50 VUs. Leave it at the default (`false`) unless you specifically want to load-test
+  that async mail path too.
 
 ## How to run it
 
@@ -94,7 +121,7 @@ From the repo root, double-click `k6.cmd` (or run it from a terminal). It:
 
 Optional overrides (set as environment variables before running `k6.cmd`):
 `VUS` (default 50), `RAMP_UP`/`STEADY`/`RAMP_DOWN` (default `10s`/`40s`/`10s`),
-`DASHBOARD_PORT` (default `9092`).
+`DASHBOARD_PORT` (default `9092`), `CREATE_APPOINTMENTS` (default `false`).
 
 ### Running it directly yourself
 
@@ -139,7 +166,9 @@ vus............................: 3      min=3         max=50
 - **`http_req_failed`** — network/HTTP-level failures (connection refused, 5xx, etc.) —
   separate from `checks`, which only fires when your script explicitly checks something.
 - **`iterations`** — how many full passes through the `default function` completed
-  (each iteration = 6 requests here, since the loop hits 6 endpoints).
+  (each iteration = 7 requests with `CREATE_APPOINTMENTS=false` — the default — or 8
+  with it `true`: 4 listings + 2 single-item reads + 1 patient create [+ 1 appointment
+  create]).
 - **`vus`** — concurrent virtual users at the moment the summary was taken; `vus_max`
   is the ceiling `options.stages` reached.
 
