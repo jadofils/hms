@@ -244,8 +244,8 @@ public class AuthService {
             throw new UnauthorizedException("Please verify your email before logging in");
         }
 
-        Optional<String> primaryRole = primaryRole(user.getUserId());
-        if (primaryRole.isEmpty()) {
+        List<String> roles = activeRoleNames(user.getUserId());
+        if (roles.isEmpty()) {
             // Every brand-new self-service account now gets Guest automatically (see
             // UserService.assignDefaultGuestRole) — reaching this means something
             // unusual happened afterward (every role, including Guest, was explicitly
@@ -253,7 +253,6 @@ public class AuthService {
             notifyAdminsOfMissingRole(user);
             throw new UnauthorizedException("This account has no assigned role");
         }
-        String role = primaryRole.get();
 
         LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
 
@@ -271,8 +270,8 @@ public class AuthService {
         session.setUpdatedAt(now);
         session = userSessionRepository.save(session);
 
-        String token = jwtService.generateToken(user.getUserId(), user.getUsername(), role, session.getSessionId());
-        return new LoginResponse(token, user.getUserId(), user.getUsername(), role);
+        String token = jwtService.generateToken(user.getUserId(), user.getUsername(), roles, session.getSessionId());
+        return new LoginResponse(token, user.getUserId(), user.getUsername(), roles);
     }
 
     @Transactional
@@ -388,24 +387,20 @@ public class AuthService {
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     /**
-     * A user can hold multiple roles; the token carries one, so the longest-held
-     * (earliest-assigned) active role is treated as primary — but a real staff role
-     * always wins over the generic Guest fallback, however it was ordered. Without
-     * this, an account seeded/created with Guest first and a real role assigned
-     * afterward (the exact shape {@code DataSeeder.seedPeople} produces once
-     * {@code UserService.createUser} auto-grants Guest to every new account) would show
-     * "Guest" as its primary role purely because of assignment order, not because
-     * that's the account's actual, intended access level.
+     * Every currently-active (non-revoked) role name a user holds — a user can hold
+     * several simultaneously (see CLAUDE.md's User↔Role many-to-many note), and every
+     * one of them is embedded in the token/returned in the login response, not just one:
+     * {@code AuthorizationAspect}/{@code PermissionExpressions} treat a permission as
+     * granted if <em>any</em> held role grants it. Ordered by {@code assignedAt} (oldest
+     * first) purely for a stable, deterministic response — order no longer picks a
+     * "primary" role the way it used to, since every role is now checked together.
      */
-    private Optional<String> primaryRole(String userId) {
-        List<UserRole> active = userRoleRepository.findByIdUserId(userId).stream()
+    private List<String> activeRoleNames(String userId) {
+        return userRoleRepository.findByIdUserId(userId).stream()
                 .filter(ur -> ur.getRevokedAt() == null)
+                .sorted(Comparator.comparing(UserRole::getAssignedAt))
+                .map(ur -> ur.getRole().getRoleName())
                 .toList();
-        return active.stream()
-                .filter(ur -> !RoleName.GUEST.getDbValue().equals(ur.getRole().getRoleName()))
-                .min(Comparator.comparing(UserRole::getAssignedAt))
-                .or(() -> active.stream().min(Comparator.comparing(UserRole::getAssignedAt)))
-                .map(ur -> ur.getRole().getRoleName());
     }
 
     /** See {@link #completeLogin}'s own comment for why reaching this is a genuine edge
