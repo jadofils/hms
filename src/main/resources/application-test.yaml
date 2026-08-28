@@ -22,3 +22,10 @@ spring:
 logging:
   level:
     amalitech.hospital.management: INFO
+
+app:
+  rate-limit:
+    # See RateLimitFilterConfig's Javadoc — the ~37 @SpringBootTest @AutoConfigureMockMvc
+    # controller test classes collectively fire far more than any sane per-minute limit
+    # through the real filter chain, all simulated from MockMvc's fixed 127.0.0.1.
+    enabled: false
