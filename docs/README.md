@@ -27,6 +27,48 @@ below, which predates and has nothing to do with the "v4" *security* pass.)
 | [4.1 — GraphQL](story-4.1-graphql.md) | 4: GraphQL | ✅ Done |
 | [5.1 — AOP logging/monitoring](story-5.1-aop-logging.md) | 5: Cross-Cutting (AOP) | ✅ Done — blanket service-layer coverage confirmed |
 
+## CORS and CSRF — how they interact in this codebase
+
+(HMS v4, User Story 3.2 — full detail, live-verified evidence, and the Postman/browser
+artifacts below live in [`v4/v4-report.md`](v4/v4-report.md); this section is the
+required-in-README summary.) CORS and CSRF solve different problems and don't substitute
+for each other:
+
+- **CORS** governs *which origins a browser lets JavaScript read a cross-origin response
+  from* — it protects the *caller's* browser from a page silently exfiltrating data via
+  `fetch`/XHR to a different origin. It says nothing about whether a request is
+  authenticated or forged.
+- **CSRF** governs *which requests a server should trust as intentional* — it protects
+  the *server* from a browser automatically riding a victim's own session cookie into a
+  forged request from another site. It's irrelevant to CORS's own concern.
+
+Concretely, in this app:
+
+| Surface | CORS | CSRF | Why |
+|---|---|---|---|
+| `/api/**`, `/graphql` | On — explicit allow-list (`SecurityConfig.corsConfigurationSource`, `app.cors-*`) | Off (`.csrf(csrf -> csrf.disable())`) | Real frontends on other origins need to call these; bearer-JWT auth isn't cookie-based, so a forged cross-site request has no ambient credential to ride in the first place |
+| `/docs/csrf-demo/**` | Irrelevant (same-origin, server-rendered form, not an API call) | On — Spring Security's session-backed default, simply never disabled for this one path (`CsrfDemoSecurityConfig`) | Demonstrates the token mechanism on the one style of endpoint (cookie/session-backed forms) where it actually matters |
+| `/oauth2/**`, `/login/oauth2/**` | N/A (Google's own redirect handshake, not a fetch/XHR call) | N/A | Needs `SessionCreationPolicy.IF_REQUIRED` to stash `state`/PKCE across the redirect round-trip — unrelated to either mechanism above |
+
+A CORS allow-list and CSRF protection are independent axes: an allow-list restricts what
+browser JS can read back, but does nothing to stop a plain `<form>` POST (no `fetch`, no
+CORS preflight involved at all) from riding a session cookie if one existed — that's
+specifically CSRF's job, which is exactly why disabling it on `/api/**` is safe only
+*because* there's no cookie-based session to ride there.
+
+**Practical demonstration, Postman + browser** (real artifacts, not curl standing in):
+- [`v4/postman/HMS-CORS-CSRF-Demo.postman_collection.json`](v4/postman/HMS-CORS-CSRF-Demo.postman_collection.json)
+  — import into Postman: a CORS folder (preflight against an allowed vs. disallowed
+  origin) and a CSRF folder (get a real token via the demo page, submit with it, submit
+  without it).
+- [`v4/cors-browser-test.html`](v4/cors-browser-test.html) — a standalone page you serve
+  from a different origin/port so a real browser's own same-origin policy is what's being
+  exercised, not just header inspection (which is all Postman itself can do — it doesn't
+  enforce CORS the way a browser does).
+- `/docs/csrf-demo` (the running app itself) is the real browser client for the CSRF half
+  — two forms, one with a valid token (succeeds), one without (rejected with `403` by
+  `CsrfFilter` before any controller runs).
+
 Also in this folder:
 - [`credentials.md`](credentials.md) — the 5 seeded demo accounts (`DataSeeder`), their
   passwords, and what each role is granted.
