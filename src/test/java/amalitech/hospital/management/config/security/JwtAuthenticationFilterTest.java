@@ -13,6 +13,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.time.Instant;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -69,7 +70,7 @@ class JwtAuthenticationFilterTest {
     void validNonBlocklistedToken_populatesSecurityContext() throws Exception {
         when(request.getHeader("Authorization")).thenReturn("Bearer valid-token");
         JwtService.Identity identity = new JwtService.Identity(
-                "user-1", "alice", "ADMIN", "jti-1", Instant.now().plusSeconds(60));
+                "user-1", "alice", List.of("ADMIN"), "jti-1", Instant.now().plusSeconds(60));
         when(jwtService.verify("valid-token")).thenReturn(identity);
         when(jwtService.isBlocklisted("jti-1")).thenReturn(false);
 
@@ -77,16 +78,31 @@ class JwtAuthenticationFilterTest {
 
         var authentication = SecurityContextHolder.getContext().getAuthentication();
         assertThat(authentication).isNotNull();
-        assertThat(authentication.getPrincipal()).isEqualTo(new AuthenticatedUser("user-1", "alice", "ADMIN"));
+        assertThat(authentication.getPrincipal()).isEqualTo(new AuthenticatedUser("user-1", "alice", List.of("ADMIN")));
         assertThat(authentication.getAuthorities()).extracting(Object::toString).containsExactly("ROLE_ADMIN");
         verify(filterChain).doFilter(request, response);
+    }
+
+    @Test
+    void multipleRoles_populatesOneAuthorityPerRole() throws Exception {
+        when(request.getHeader("Authorization")).thenReturn("Bearer valid-token");
+        JwtService.Identity identity = new JwtService.Identity(
+                "user-1", "alice", List.of("ADMIN", "DOCTOR"), "jti-1", Instant.now().plusSeconds(60));
+        when(jwtService.verify("valid-token")).thenReturn(identity);
+        when(jwtService.isBlocklisted("jti-1")).thenReturn(false);
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        var authentication = SecurityContextHolder.getContext().getAuthentication();
+        assertThat(authentication.getAuthorities()).extracting(Object::toString)
+                .containsExactlyInAnyOrder("ROLE_ADMIN", "ROLE_DOCTOR");
     }
 
     @Test
     void blocklistedToken_clearsSecurityContext() throws Exception {
         when(request.getHeader("Authorization")).thenReturn("Bearer revoked-token");
         JwtService.Identity identity = new JwtService.Identity(
-                "user-1", "alice", "ADMIN", "jti-1", Instant.now().plusSeconds(60));
+                "user-1", "alice", List.of("ADMIN"), "jti-1", Instant.now().plusSeconds(60));
         when(jwtService.verify("revoked-token")).thenReturn(identity);
         when(jwtService.isBlocklisted("jti-1")).thenReturn(true);
 
