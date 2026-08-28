@@ -15,6 +15,8 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.data.web.PagedModel;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -50,7 +52,8 @@ public class PermissionController {
                     + "action, createdAt, updatedAt.",
             array = @ArraySchema(schema = @Schema(type = "string")), example = "resource,asc")
     @RequirePermission(resource = Resource.PERMISSIONS, action = PermissionAction.READ)
-    public ResponseEntity<ApiResult<PagedModel<PermissionResponse>>> getPermissions(Pageable pageable) {
+    public ResponseEntity<ApiResult<PagedModel<PermissionResponse>>> getPermissions(
+            @PageableDefault(size = 20, sort = "resource", direction = Sort.Direction.ASC) Pageable pageable) {
         return ResponseEntity.ok(ApiResult.of("Permissions retrieved", permissionService.getPermissions(pageable)));
     }
 
@@ -78,7 +81,8 @@ public class PermissionController {
             description = "Sort by property,direction. Possible properties: permissionId, resource, action.",
             array = @ArraySchema(schema = @Schema(type = "string")), example = "resource,asc")
     @RequirePermission(resource = Resource.PERMISSIONS, action = PermissionAction.READ)
-    public ResponseEntity<ApiResult<PagedModel<PermissionResponse>>> getGrantedPermissions(Pageable pageable) {
+    public ResponseEntity<ApiResult<PagedModel<PermissionResponse>>> getGrantedPermissions(
+            @PageableDefault(size = 20, sort = "permissionId", direction = Sort.Direction.ASC) Pageable pageable) {
         return ResponseEntity.ok(ApiResult.of("Granted permissions retrieved", permissionService.getGrantedPermissions(pageable)));
     }
 }
