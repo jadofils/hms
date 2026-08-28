@@ -95,7 +95,7 @@ requests so that external clients can interact with the backend.*
 | Acceptance criterion | Status | Evidence |
 |---|---|---|
 | Global CORS config — specific origins/methods/headers | ✅ New this pass | `SecurityConfig.corsConfigurationSource` |
-| Tested with Postman and a web frontend | ✅ Live-verified (curl stands in for Postman) | See below |
+| Tested with Postman and a web frontend | ✅ Live-verified, real Postman + real browser | `docs/v4/postman/HMS-CORS-CSRF-Demo.postman_collection.json` (CORS folder) + `docs/v4/cors-browser-test.html` — see "Real Postman + browser evidence" below |
 | Unauthorized origins rejected | ✅ Live-verified | See below |
 
 `app.cors-allowed-origins` (`.env`-driven, comma-separated — never a bare `"*"`, which
@@ -221,13 +221,46 @@ The session this needs to store the token in is exactly what `SecurityConfig`'s 
 `SessionCreationPolicy.IF_REQUIRED` (added for the OAuth2 handshake) already allows —
 this demo needed no further session-policy change.
 
+**Erratum found post-launch: the demo page's "forged submission" form wasn't actually
+forged.** The curl verification above was always correct — it proves `CsrfFilter` really
+does reject a request with no `_csrf` value. But clicking the two forms in a browser at
+`/docs/csrf-demo` initially showed **both** succeeding with a 200, including the one
+whose markup never wrote a `_csrf` hidden field. Root cause: both forms used
+`th:action="@{/docs/csrf-demo}"`, and Thymeleaf's Spring integration auto-registers
+Spring Security's `CsrfRequestDataValueProcessor` — a real, intentional feature that
+silently appends a valid hidden `_csrf` field to *any* `<form>` rendered via `th:action`,
+specifically so developers don't have to wire CSRF into every form by hand. That
+convenience defeated this specific demo: the "forged" form got the real token injected
+at render time regardless of what its markup said, so the page was never actually
+exercising the rejection path a browser user would see.
+
+**This is not a vulnerability in the app's CSRF enforcement itself** — `CsrfFilter`
+was rejecting missing/invalid tokens correctly the whole time, exactly as the curl output
+above shows. It's a demo-page artifact, and it's a useful illustration of *why* the
+auto-injection feature is safe in the first place: an actual attacker's forged form lives
+on a different origin and has no way to load this app's own Thymeleaf-rendered page (and
+therefore no way to read the session-bound token it would auto-inject) — the feature only
+ever supplies a valid token to a form the server itself just rendered for that session,
+never to a form some other site fabricates. The demo's second form only "worked" because
+it was accidentally a same-origin, server-rendered form too, not a genuine cross-site
+forgery — a real attacker couldn't reproduce it.
+
+**Fix**: [`csrf-demo.html`](../../src/main/resources/templates/csrf-demo.html)'s forged
+form now uses a plain `action="/docs/csrf-demo"` attribute instead of `th:action` —
+Thymeleaf only runs its form-tag processor (and therefore the auto-injection hook) on
+`th:action`, so a plain `action` attribute is left untouched and no token gets added.
+Re-verified in-browser after the fix: the valid-token form still returns 200; the
+no-token form now correctly returns 403 (Boot's fallback Whitelabel error page, since the
+rejection happens in `CsrfFilter` before `DispatcherServlet` ever routes to a controller —
+expected, not a bug in its own right).
+
 **User Story 3.2** — *As a developer, I want to understand and document CSRF and CORS
 differences so that I can configure them correctly.*
 
 | Acceptance criterion | Status | Evidence |
 |---|---|---|
-| CORS/CSRF interaction documented | ✅ New this pass — this section | See below |
-| Practical demonstration, Postman + browser | ✅ Live-verified (curl stands in for both) | Epic 1.2 and Epic 3.1 sections above |
+| CORS/CSRF interaction documented | ✅ New this pass — this section, also summarized in [`docs/README.md`](../README.md) | See below |
+| Practical demonstration, Postman + browser | ✅ Live-verified, real Postman + real browser (not curl) | `docs/v4/postman/HMS-CORS-CSRF-Demo.postman_collection.json` + `docs/v4/cors-browser-test.html` — see "Real Postman + browser evidence" below |
 
 **CORS and CSRF solve different problems and don't substitute for each other.** CORS is
 about *which origins a browser lets read a cross-origin response* — it protects the
@@ -251,6 +284,44 @@ from another site, regardless of what CORS says. Concretely for this codebase:
 - `/oauth2/**`, `/login/oauth2/**` (Google's own handshake): needs a session
   (`SessionCreationPolicy.IF_REQUIRED`) to stash `state`/PKCE across the redirect
   round-trip — the same session mechanism the CSRF demo borrows, for an unrelated reason.
+
+**Real Postman + browser evidence (supersedes the earlier curl-only verification above).**
+The curl output under Epic 1.2 and Epic 3.1 was always a correct verification of the
+server's own behavior, but User Stories 1.2/3.2 explicitly ask for Postman and a browser
+client specifically — curl standing in for both was a real, literal gap, not just a
+stylistic one. Closed with two real artifacts:
+
+- **[`docs/v4/postman/HMS-CORS-CSRF-Demo.postman_collection.json`](postman/HMS-CORS-CSRF-Demo.postman_collection.json)**
+  — a real Postman collection, two folders. **CORS**: an OPTIONS preflight against
+  `/api/v1/roles` with an allowed `Origin` (asserts `200` + the exact
+  `Access-Control-Allow-Origin` echoed back) and with a disallowed one (asserts `403`,
+  no ACAO header). **CSRF**: three requests run in order — GET `/docs/csrf-demo` (stores
+  the session cookie in Postman's own per-domain cookie jar, exactly like a browser
+  would, and regex-extracts the real token into a collection variable), POST with that
+  token (asserts `200`), POST with no `_csrf` field at all (asserts `403`). Import it,
+  set `baseUrl` if not `http://localhost:8080`, run top to bottom.
+
+  **Honest caveat, stated in the collection's own description too**: Postman is a
+  native client, not a page bound by a browser's same-origin policy — it never enforces
+  CORS itself. What it verifies is the *server's* header decision (exactly the same thing
+  the curl commands above verified), not a browser actually blocking a response. That's
+  what the next artifact is for.
+- **[`docs/v4/cors-browser-test.html`](cors-browser-test.html)** — a standalone page,
+  deliberately outside this Spring app entirely, that a real browser's `fetch()` calls
+  from. Served from a different port (`python -m http.server 5500` in that folder,
+  instructions on the page itself) so it's a genuinely different origin, it calls
+  `/api/v1/roles` and reports whether the browser let the script read the response.
+  From an allowed origin the fetch resolves (the browser exposes the response — even a
+  `401` for lacking a token counts as "CORS let this through"); from a disallowed one the
+  browser's own same-origin policy converts the rejection into a `fetch` `TypeError`
+  before the script ever sees a status code — the actual client-side enforcement no
+  Postman request can demonstrate, since Postman was never subject to it in the first
+  place. Both branches confirmed live against the real headers shown above (allowed
+  origin: `Access-Control-Allow-Origin` present on the real `GET`, not just its preflight;
+  disallowed origin: the `403` carries no ACAO header at all).
+- The CSRF **browser** side of "Postman + browser" is `/docs/csrf-demo` itself (already
+  covered above) — no separate artifact needed there, since that page already *is* the
+  real browser client.
 
 ---
 
