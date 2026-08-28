@@ -20,6 +20,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.data.web.PagedModel;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -54,7 +56,8 @@ public class DepartmentController {
                     + "location, phone, createdAt, updatedAt.",
             array = @ArraySchema(schema = @Schema(type = "string")), example = "name,asc")
     @RequirePermission(resource = Resource.DEPARTMENTS, action = PermissionAction.READ)
-    public ResponseEntity<ApiResult<PagedModel<DepartmentResponse>>> getDepartments(Pageable pageable) {
+    public ResponseEntity<ApiResult<PagedModel<DepartmentResponse>>> getDepartments(
+            @PageableDefault(size = 20, sort = "name", direction = Sort.Direction.ASC) Pageable pageable) {
         return ResponseEntity.ok(ApiResult.of("Departments retrieved", departmentService.getDepartments(pageable)));
     }
 
