@@ -1,0 +1,106 @@
+{
+  "info": {
+    "_postman_id": "9d2c7a41-5e3f-4b6a-8f2d-1a7c6e9d4b30",
+    "name": "HMS — Postman Load Test",
+    "description": "Same endpoint mix as docs/v5/load-testing/hms-load-test.js (k6) and hms-load-test.jmx (JMeter), for running via Postman's own Performance testing feature instead: select this collection → Run → Performance tab → set Virtual users/Duration/Load profile → Run.\n\nSetup before running:\n1. Set the `baseUrl` collection variable (defaults to http://localhost:8080).\n2. Set `authToken` to a real JWT from POST /api/v1/auth/login — login is deliberately NOT one of the looped requests below, same reasoning as the k6/JMeter scripts: this measures concurrent *authenticated* traffic, not login throughput, and re-logging in every iteration would be a different (and much smaller) test.\n3. Set `patientId`/`doctorId` to a real existing patient/doctor id (for the two single-item GETs).\n4. Set APP_RATE_LIMIT_ENABLED=false in .env before running (or raise APP_RATE_LIMIT_MAX_REQUESTS) — RateLimitFilter enforces 100 requests/60s per IP globally ahead of every endpoint, and this test deliberately exceeds that from one machine, same caveat as the k6/JMeter runs. Restore it afterward.\n\nThe write request (create patient) generates its own unique phone/email per request via a pre-request script (Date.now() + Math.random(), no data file needed) — avoids colliding with PatientRequest's unique-constrained columns across thousands of iterations. If you're on a Postman plan that supports performance-test data files instead, see https://learning.postman.com/docs/collections/performance-testing/performance-test-data-files for the alternative CSV/JSON-driven approach.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{authToken}}", "type": "string" }]
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080", "type": "string" },
+    { "key": "authToken", "value": "", "type": "string" },
+    { "key": "patientId", "value": "", "type": "string" },
+    { "key": "doctorId", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "GET doctors (listing)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "{{baseUrl}}/api/v1/doctors?page=0&size=20", "host": ["{{baseUrl}}"], "path": ["api", "v1", "doctors"], "query": [{ "key": "page", "value": "0" }, { "key": "size", "value": "20" }] }
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('status is 200', () => pm.response.to.have.status(200));"] } }]
+    },
+    {
+      "name": "GET patients (listing)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "{{baseUrl}}/api/v1/patients?page=0&size=20", "host": ["{{baseUrl}}"], "path": ["api", "v1", "patients"], "query": [{ "key": "page", "value": "0" }, { "key": "size", "value": "20" }] }
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('status is 200', () => pm.response.to.have.status(200));"] } }]
+    },
+    {
+      "name": "GET appointments (listing)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "{{baseUrl}}/api/v1/appointments?page=0&size=20", "host": ["{{baseUrl}}"], "path": ["api", "v1", "appointments"], "query": [{ "key": "page", "value": "0" }, { "key": "size", "value": "20" }] }
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('status is 200', () => pm.response.to.have.status(200));"] } }]
+    },
+    {
+      "name": "GET users (listing)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "{{baseUrl}}/api/v1/users?page=0&size=20", "host": ["{{baseUrl}}"], "path": ["api", "v1", "users"], "query": [{ "key": "page", "value": "0" }, { "key": "size", "value": "20" }] }
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('status is 200', () => pm.response.to.have.status(200));"] } }]
+    },
+    {
+      "name": "GET single patient (CompletableFuture fan-out)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "{{baseUrl}}/api/v1/patients/{{patientId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "patients", "{{patientId}}"] }
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('status is 200', () => pm.response.to.have.status(200));"] } }]
+    },
+    {
+      "name": "GET single doctor (@Cacheable)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "{{baseUrl}}/api/v1/doctors/{{doctorId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "doctors", "{{doctorId}}"] }
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('status is 200', () => pm.response.to.have.status(200));"] } }]
+    },
+    {
+      "name": "POST create patient (write path)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"firstName\": \"LoadTest\",\n  \"lastName\": \"Patient\",\n  \"dob\": \"1990-01-01\",\n  \"gender\": \"F\",\n  \"phone\": \"{{uniquePhone}}\",\n  \"email\": \"{{uniqueEmail}}\",\n  \"address\": \"123 Load Test St\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/api/v1/patients", "host": ["{{baseUrl}}"], "path": ["api", "v1", "patients"] }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "// No data file needed — unique per request from timestamp + randomness,",
+              "// same reasoning as hms-load-test.js's uniqueDigits() helper: PatientRequest's",
+              "// phone/email are unique-constrained, so every write needs its own value.",
+              "const raw = `${Date.now()}${Math.floor(Math.random() * 1000000)}`;",
+              "pm.variables.set('uniquePhone', '07' + raw.slice(-7));",
+              "pm.variables.set('uniqueEmail', `loadtest${raw.slice(-6)}@example.com`);"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": { "type": "text/javascript", "exec": ["pm.test('status is 201', () => pm.response.to.have.status(201));"] }
+        }
+      ]
+    }
+  ]
+}
