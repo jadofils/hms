@@ -19,6 +19,38 @@ enterprise-standard tool named explicitly in this project's own Technical Requir
 table; k6 is a newer, code-first alternative increasingly common in real teams because
 the test itself is a readable, version-controllable script instead of a large XML file.
 
+## A second, different k6 script: `hms-user-journey-test.js`
+
+`hms-load-test.js` (above) and `hms-user-journey-test.js` test two different things —
+neither replaces the other:
+
+| | `hms-load-test.js` (`k6.cmd`) | `hms-user-journey-test.js` (`k6-journey.cmd`) |
+|---|---|---|
+| Auth | One admin JWT, pre-fetched once, shared by every VU | Every VU logs in **for itself**, every iteration |
+| What's measured | Pure post-auth API throughput (comparable to the JMeter plan) | Login/session/logout concurrency, and mixed role-based traffic |
+| Accounts used | N/A (single pre-fetched token) | All 5 `DataSeeder`-seeded demo accounts (`docs/credentials.md`), round-robined by VU number — creates **zero** new `User` rows |
+| Default VUs | 50 | 100 |
+
+Each `hms-user-journey-test.js` iteration is a full journey: `POST /auth/login` →
+`GET /auth/me` → one or two reads matched to that account's actual role permissions
+(`docs/credentials.md`'s grants — e.g. a `Doctor`-role login never calls an
+admin-only endpoint) → occasionally (30% of iterations, `Admin`/`Receptionist` logins
+only, since those are the only two roles with `patients:create`) a patient write, using
+the same `loadtest######@example.com` fingerprint as `hms-load-test.js`'s write path →
+`POST /auth/logout`.
+
+Run it via `k6-journey.cmd` (reads `K6_HOME` from `.env`, same as `k6.cmd`) or directly:
+```
+k6 run --env VUS=100 docs/v5/load-testing/hms-user-journey-test.js
+```
+
+**Rate limiting matters even more here than for `hms-load-test.js`**: every iteration
+touches `/auth/login`, and `RateLimitFilter` counts per client IP — with 100 VUs on one
+test machine all sharing that IP, this blows through the default 100 req/60s budget in
+under a second. Set `APP_RATE_LIMIT_ENABLED=false` in `.env` (and, for the external-
+Tomcat deployment, `setenv.bat` too — see `deployment-guide.md`) before running, and
+restore it afterward.
+
 ## How `hms-load-test.js` actually works
 
 The whole file is at `docs/v5/load-testing/hms-load-test.js`. Walking through it:
