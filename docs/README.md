@@ -70,6 +70,21 @@ specifically CSRF's job, which is exactly why disabling it on `/api/**` is safe 
   `CsrfFilter` before any controller runs).
 
 Also in this folder:
+- [`deployment-guide.md`](deployment-guide.md) — deploying this app to an external
+  Apache Tomcat with LAN access: prerequisites, from-scratch setup, what changed in the
+  codebase to make it deployable (WAR packaging, `SpringBootServletInitializer`), the
+  one-click `start-hms-server.cmd` startup script, both manual startup methods
+  (`startup.bat` vs. `catalina.bat run`), network/firewall configuration, primary
+  endpoint URLs, and troubleshooting (including a real hang this deployment hit and its
+  root cause).
+- [`ngrok-deployment-guide.md`](ngrok-deployment-guide.md) — extending the LAN
+  deployment above to a public internet URL via ngrok: download/install (including two
+  real installation problems hit and fixed — an outdated winget package and Windows
+  Defender quarantining the binary), account/authtoken setup, the
+  `graphql-block-proxy.py` proxy this setup tunnels instead of the app directly (and
+  why — GraphQL's own known zero-authorization gap), the one-click
+  `start-ngrok-tunnel.cmd` script, every public URL, and how to adapt it if a port
+  changes.
 - [`credentials.md`](credentials.md) — the 5 seeded demo accounts (`DataSeeder`), their
   passwords, and what each role is granted.
 - [`annotations-reference.md`](annotations-reference.md) — all seven custom annotations
