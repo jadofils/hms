@@ -7,14 +7,16 @@ REM docs/deployment-guide.md) -> waits for the app itself to answer -> opens Swa
 REM Safe to double-click again while everything is already running -- every step below
 REM checks first and skips itself if there's nothing to do.
 REM
-REM Reads TOMCAT_HOME and DOCKER_DESKTOP_EXE from .env (same convention as
+REM Reads TOMCAT_HOME, DOCKER_DESKTOP_EXE, and JAVA_HOME from .env (same convention as
 REM k6.cmd/jmeter.cmd/prometheus.cmd).
 
 set TOMCAT_HOME=
 set DOCKER_DESKTOP_EXE=
+set ENV_JAVA_HOME=
 if exist ".env" (
     for /f "usebackq tokens=1,* delims==" %%A in (`findstr /b "TOMCAT_HOME=" ".env" 2^>nul`) do set "TOMCAT_HOME=%%B"
     for /f "usebackq tokens=1,* delims==" %%A in (`findstr /b "DOCKER_DESKTOP_EXE=" ".env" 2^>nul`) do set "DOCKER_DESKTOP_EXE=%%B"
+    for /f "usebackq tokens=1,* delims==" %%A in (`findstr /b "JAVA_HOME=" ".env" 2^>nul`) do set "ENV_JAVA_HOME=%%B"
 )
 if "%TOMCAT_HOME%"=="" (
     echo TOMCAT_HOME not found in .env.
@@ -29,6 +31,18 @@ if not exist "%TOMCAT_HOME%\bin\startup.bat" (
     echo Check the TOMCAT_HOME value in .env.
     pause
     exit /b 1
+)
+REM This machine's own system/user JAVA_HOME is inconsistently set across shells --
+REM some see it correctly as the JDK root, others see a bogus trailing "\bin" (making
+REM catalina.bat look for java.exe under ...\bin\bin\java.exe, which doesn't exist).
+REM Force it from .env instead of trusting whatever this shell inherited.
+if not "%ENV_JAVA_HOME%"=="" (
+    if exist "%ENV_JAVA_HOME%\bin\java.exe" (
+        set "JAVA_HOME=%ENV_JAVA_HOME%"
+    ) else (
+        echo Warning: JAVA_HOME in .env ^(%ENV_JAVA_HOME%^) has no bin\java.exe --
+        echo ignoring it and falling back to this shell's own JAVA_HOME.
+    )
 )
 
 echo ============================================================
