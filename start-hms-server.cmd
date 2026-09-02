@@ -58,7 +58,10 @@ docker info >nul 2>nul
 if not errorlevel 1 goto docker_ready
 set /a DOCKER_TRIES+=1
 if !DOCKER_TRIES! GEQ 36 goto docker_timeout
-"%SystemRoot%\System32\timeout.exe" /t 5 /nobreak >nul
+REM timeout.exe refuses to run ("Input redirection is not supported") under several
+REM common terminal hosts when stdin isn't a real console -- ping against localhost is
+REM this repo's established stand-in for a plain ~5s wait (see start-ngrok-tunnel.cmd).
+ping -n 6 127.0.0.1 >nul
 goto docker_wait_loop
 
 :docker_timeout
@@ -115,6 +118,12 @@ echo Something is already listening on port 8080 -- assuming HMS is already up.
 goto tomcat_done
 
 :start_tomcat
+REM catalina.bat's own CATALINA_HOME auto-detection is based on the current working
+REM directory, not on where the script itself lives -- since our CWD here is the repo
+REM root, not "%TOMCAT_HOME%\bin", that auto-detection fails ("The CATALINA_HOME
+REM environment variable is not defined correctly") unless we set it explicitly first.
+set "CATALINA_HOME=%TOMCAT_HOME%"
+set "CATALINA_BASE=%TOMCAT_HOME%"
 call "%TOMCAT_HOME%\bin\startup.bat"
 echo Waiting for the application to finish deploying inside Tomcat...
 set /a APP_TRIES=0
@@ -124,7 +133,10 @@ curl -s -o nul -w "%%{http_code}" http://localhost:8080/actuator/health 2>nul | 
 if not errorlevel 1 goto tomcat_done
 set /a APP_TRIES+=1
 if !APP_TRIES! GEQ 24 goto app_timeout
-"%SystemRoot%\System32\timeout.exe" /t 5 /nobreak >nul
+REM timeout.exe refuses to run ("Input redirection is not supported") under several
+REM common terminal hosts when stdin isn't a real console -- ping against localhost is
+REM this repo's established stand-in for a plain ~5s wait (see start-ngrok-tunnel.cmd).
+ping -n 6 127.0.0.1 >nul
 goto app_wait_loop
 
 :app_timeout
