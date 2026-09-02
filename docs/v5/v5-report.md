@@ -195,6 +195,52 @@ and comparing) to empirically confirm the current sizes are optimal rather than 
 adequate — `load-testing-report.md`'s own "Still open" section spells this out as the
 natural next step, using the same two scripts already committed for it.
 
+### Full inventory — every `@Async`/`CompletableFuture`/executor/concurrent-collection/hash-lookup site
+
+Backing the narrative claims above with the actual file:line list, not just a summary —
+every real usage in `src/main/java`, nothing invented to pad the checklist.
+
+**`@Async` / `CompletableFuture` / executor pools**
+
+| Construct | Where | What it does |
+|---|---|---|
+| `@Async("mailTaskExecutor")` | `service/MailEventListener.java:54,61,68,75,84,100` (`onUserRegistered`, `onAdminCreatedUser`, `onPasswordResetRequested`, `onPasswordChanged`, `onUserInvited`, `onUserRoleMissing`) | Dispatches every outbound mail send off-thread, after the triggering transaction has already committed — the ~4s blocking-SMTP-in-transaction problem this pass exists to fix (Epic 2 above) |
+| `ThreadPoolTaskExecutor mailTaskExecutor()` | `config/AsyncConfig.java:37-44` | core=2, max=6, queue=50, prefix `mail-` — backs the 6 `@Async` methods above |
+| `ThreadPoolTaskExecutor patientProfileExecutor()` | `config/AsyncConfig.java:55-62` | core=4, max=8, queue=100, prefix `patient-profile-` — sized larger since each request briefly checks out several threads at once |
+| `CompletableFuture` (9-way fan-out) | `service/PatientService.java:202-256` | `getPatient()`'s N+1 fix: `CompletableFuture.supplyAsync(..., patientProfileExecutor)` for core profile, appointments, invoices, allergies, feedback, notes, medical records, vital signs, referrals — joined via `CompletableFuture.allOf(...).thenApply(...)` |
+| `ThreadPoolTaskScheduler` | `config/SchedulingConfig.java:20-24` | Backs `@ScheduledMaintenance`'s custom dispatch (`ScheduledMaintenanceRegistrar`) — deliberately a separate pool from the two above, unrelated workload |
+
+No plain `Future`/raw `java.util.concurrent.ExecutorService` anywhere — every async path
+routes through one of the two named `ThreadPoolTaskExecutor` beans above, per
+`AsyncConfig`'s own "always name one of these two explicitly, never a bare `@Async`"
+rule.
+
+**`ConcurrentHashMap` / `CopyOnWriteArrayList`**
+
+| Where | What it does |
+|---|---|
+| `service/PatientService.java:109-110` — `ConcurrentHashMap<String, CompletableFuture<PatientResponse>> inFlightPatientFetches` | This pass's own new single-flight map (see 3.1 above) — de-dupes concurrent `getPatient(id)` calls for the same patient instead of each independently launching its own 9-way fan-out |
+| `aop/EventBus.java:46-47` — `Map<String, Subscriber> subscribersByName`, `Map<Class<?>, List<Subscriber>> subscribersByEvent` | Pre-existing (earlier pass) `@Subscribe` registry — thread-safe since `EventSubscriptionController` can toggle listeners on/off concurrently with publishes |
+| `aop/EventBus.java:18,81` — `CopyOnWriteArrayList<Subscriber>` via `computeIfAbsent(...)` | Per-event-type subscriber list — read on every publish, written only on registration/toggle, the textbook `CopyOnWrite` case |
+| `utils/EmailTemplateRenderer.java:33` — `Map<String, String> templateCache` | Caches rendered template file contents by name, read concurrently by every `@Async` mail send |
+
+(No `CopyOnWriteHashMap` — that type doesn't exist in the JDK; the one `CopyOnWrite*`
+usage in this codebase is `CopyOnWriteArrayList`, above.)
+
+**Plain `HashMap` as an O(1) lookup table** (the "hash-based lookups" row in Epic 4.1's
+table below covers the `ConcurrentHashMap` case; these are the plain-`HashMap`
+equivalents used for batch-query lookup rather than concurrent access):
+
+| Where | What it does |
+|---|---|
+| `service/UserService.java:172-188` | N+1-avoidance batch pattern for the users listing: `rolesByUserId`/`doctorIdByUserId` built once via `Collectors.groupingBy`/`toMap` off a single batch query, then a `HashMap<String, RoleResponse>`/`HashMap<String, DoctorResponse>` cache resolves each row's role/doctor response in O(1) instead of re-querying per row |
+| `config/DataSeeder.java:156,181` | `Map<String,String> permissionIds` / `Map<RoleName,String> roleIds` — name→generated-UUID lookup tables built once during seeding, used to resolve IDs when wiring `RolePermission`/`UserRole` rows without re-querying |
+
+(`LinkedHashMap` usages in `EmailAspect`, `FindUserDataAspect`,
+`GraphQlExceptionResolver`, `OAuth2Login{Success,Failure}Handler`, and `RateLimitFilter`
+are excluded from the table above — those build an ordered JSON response body for
+predictable field order, not a lookup optimization.)
+
 ---
 
 ## Epic 4: Data and Algorithmic Optimization
