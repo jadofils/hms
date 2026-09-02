@@ -11,6 +11,15 @@
 	<groupId>amalitech.hospital</groupId>
 	<artifactId>hms</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
+	<!-- WAR, not the default jar — lets this same artifact be deployed to an external
+	     servlet container (see HmsApplication's SpringBootServletInitializer override)
+	     while spring-boot-starter-tomcat below stays "provided" scope so the external
+	     container's own Tomcat is what actually serves it there. This does NOT break the
+	     existing dev workflow: `mvn spring-boot:run` and `java -jar` both still work
+	     exactly as before — Spring Boot's repackaging step adds provided-scope
+	     dependencies back into the executable artifact specifically to support this dual
+	     "runs standalone AND deployable to an external container" mode. -->
+	<packaging>war</packaging>
 	<name>Hospital Management System</name>
 	<description>REST + GraphQL backend for hospital administration — patients, doctors, appointments, pharmacy, lab, and finance.</description>
 	<url/>
@@ -73,6 +82,18 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-webmvc</artifactId>
+		</dependency>
+		<!-- Explicit, "provided" scope — Maven dependency mediation lets this override the
+		     same artifact spring-boot-starter-webmvc already pulls in transitively at its
+		     default "compile" scope. "provided" means: available at compile/test time, but
+		     excluded from the WAR's own WEB-INF/lib — required for external-container
+		     deployment (the container supplies its own Tomcat; two copies on the classpath
+		     would conflict). Spring Boot's Maven plugin re-includes it when repackaging the
+		     executable artifact, so `mvn spring-boot:run`/`java -jar` are unaffected. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-tomcat</artifactId>
+			<scope>provided</scope>
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
